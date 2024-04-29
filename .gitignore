@@ -1,4 +1,5 @@
 .gitignore
 /**/build/
 /**/sdkconfig.old
+/**/dependencies.lock
 .vscode/
