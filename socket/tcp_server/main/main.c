@@ -10,13 +10,13 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
-#define EXAMPLE_WIFI_SSID           "SolaxGuest"
-#define EXAMPLE_WIFI_PWD            "solaxpower"
-#define EXAMPLE_MAX_RECONNECT       5
-#define EXAMPLE_TCP_SERVER_PORT     60001
+#define EXAMPLE_WIFI_SSID               "TP-LINK_8E86"
+#define EXAMPLE_WIFI_PWD                "12345678"
+#define EXAMPLE_WIFI_MAX_RECONNECT      3
+#define EXAMPLE_TCP_SERVER_PORT         60001
 
 static const char *TAG = "tcp_server";
-static uint32_t reconnect_cnt = 0;
+static uint32_t wifi_reconnect_cnt = 0;
 
 static void tcp_server_task(void *pvParameters)
 {
@@ -24,55 +24,57 @@ static void tcp_server_task(void *pvParameters)
     int client_sock = 0;
     int err = 0;
     int rx_len = 0;
-    int tx_len = 0;
-    uint8_t rx_buf[128] = { 0 };
+    uint8_t rx_buf[256] = { 0 };
+    struct sockaddr_in local_addr = { 0 };
+    struct sockaddr_in client_addr = { 0 };
+    socklen_t client_addr_len = sizeof(client_addr);
 
     listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
     if (listen_sock < 0) {
         ESP_LOGE(TAG, "socket create failed:%d", errno);
-        return;
+        goto exit;
     }
 
-    struct sockaddr_in ser_addr = { 0 };
-    ser_addr.sin_family = AF_INET;
-    ser_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    ser_addr.sin_port = htons(EXAMPLE_TCP_SERVER_PORT);
-    err = bind(listen_sock, (struct sockaddr *)&ser_addr, sizeof(ser_addr));
+    local_addr.sin_family = AF_INET;
+    local_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    local_addr.sin_port = htons(EXAMPLE_TCP_SERVER_PORT);
+    err = bind(listen_sock, (struct sockaddr *)&local_addr, sizeof(local_addr));
     if (err != 0) {
         ESP_LOGE(TAG, "socket bind failed:%d", errno);
-        return;
+        goto exit;
     }
 
     listen(listen_sock, 1);
-    ESP_LOGI(TAG, "listen port:%u, waiting client connect...", EXAMPLE_TCP_SERVER_PORT);
+    ESP_LOGI(TAG, "tcp server listen, port:%u", EXAMPLE_TCP_SERVER_PORT);
 
     while (1) {
-        struct sockaddr_in cli_addr = { 0 };
-        socklen_t cli_addr_len = sizeof(cli_addr);
-        client_sock = accept(listen_sock, (struct sockaddr *)&cli_addr, &cli_addr_len);
+        client_sock = accept(listen_sock, (struct sockaddr *)&client_addr, &client_addr_len);
         if (client_sock < 0) {
             ESP_LOGE(TAG, "socket accept failed:%d", errno);
-            break;
+            continue;
         }
-        ESP_LOGI(TAG, "new connection, ip:%s port:%u", inet_ntoa(cli_addr.sin_addr), cli_addr.sin_port);
+        ESP_LOGI(TAG, "tcp client connected, %s:%u", inet_ntoa(client_addr.sin_addr), client_addr.sin_port);
 
-        do {
-            memset(rx_buf, 0, sizeof(rx_buf));
-            rx_len = recv(client_sock, rx_buf, sizeof(rx_buf) - 1, 0);
+        while (1) {
+            rx_len = recv(client_sock, rx_buf, sizeof(rx_buf), 0);
             if (rx_len < 0) {
                 ESP_LOGE(TAG, "socket recv failed:%d", errno);
-            } else if (rx_len == 0) {
-                ESP_LOGW(TAG, "client socket closed");
                 close(client_sock);
+                break;
+            } else if (rx_len == 0) {
+                ESP_LOGW(TAG, "socket client closed");
+                close(client_sock);
+                break;
             } else {
+                rx_buf[rx_len] = 0;
                 ESP_LOGI(TAG, "recv:%s", rx_buf);
-                tx_len = send(client_sock, rx_buf, rx_len, 0);
-                if (tx_len < 0) {
-                    ESP_LOGE(TAG, "send socket failed:%d", errno);
-                }
-            }
-        } while (rx_len > 0);
+                send(client_sock, rx_buf, rx_len, 0);
+            }            
+        }
     }
+
+exit:
+    vTaskDelete(NULL);
 }
 
 static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
@@ -84,22 +86,22 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     if (WIFI_EVENT == event_base) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
-            ESP_LOGI(TAG, "start connect to %s", EXAMPLE_WIFI_SSID);
+            ESP_LOGI(TAG, "wifi start connect, %s:%s", EXAMPLE_WIFI_SSID, EXAMPLE_WIFI_PWD);
             esp_wifi_connect(); // non-block
             break;
         case WIFI_EVENT_STA_CONNECTED:
             conn_event = (wifi_event_sta_connected_t *)event_data;
-            ESP_LOGI(TAG, "connected, channel:%u, authmode:%u", conn_event->channel, conn_event->authmode);
+            ESP_LOGI(TAG, "wifi connected, channel:%u authmode:%u", conn_event->channel, conn_event->authmode);
             break;
         case WIFI_EVENT_STA_DISCONNECTED:
             dis_event = (wifi_event_sta_disconnected_t *)event_data;
-            ESP_LOGE(TAG, "disconnected, reason:%u", dis_event->reason);
-            if (reconnect_cnt < EXAMPLE_MAX_RECONNECT) {
-                reconnect_cnt++;
-                ESP_LOGW(TAG, "start reconnect %u", reconnect_cnt);
+            ESP_LOGE(TAG, "wifi disconnected, reason:%u", dis_event->reason);
+            if (wifi_reconnect_cnt < EXAMPLE_WIFI_MAX_RECONNECT) {
+                wifi_reconnect_cnt++;
+                ESP_LOGW(TAG, "wifi start reconnect, cnt:%u", wifi_reconnect_cnt);
                 esp_wifi_connect();
             } else {
-                ESP_LOGE(TAG, "connect failed");
+                ESP_LOGE(TAG, "wifi connect failed");
             }
             break;
         default:
@@ -112,7 +114,7 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
         switch (event_id) {
         case IP_EVENT_STA_GOT_IP:
             got_event = (ip_event_got_ip_t *)event_data;
-            ESP_LOGI(TAG, "get ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
+            ESP_LOGI(TAG, "got ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
                 IP2STR(&got_event->ip_info.ip), IP2STR(&got_event->ip_info.netmask), IP2STR(&got_event->ip_info.gw));
             xTaskCreate(tcp_server_task, "tcp_server", 4096, NULL, 5, NULL);
             break;
@@ -157,7 +159,7 @@ void app_main(void)
     };
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &sta_config);
-    esp_wifi_start();
+    esp_wifi_start(); // trigger WIFI_EVENT_STA_START
 
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
