@@ -10,7 +10,7 @@
 #include "esp_gatt_common_api.h"
 
 
-#define TAG                             "ble_gatts"
+#define TAG                             "ble_gatt"
 #define EXAMPLE_APP_ID                  0x0055
 #define EXAMPLE_SVC_INST_ID_BATTERY     0
 #define EXAMPLE_SVC_INST_ID_TEST        1
