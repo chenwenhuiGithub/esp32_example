@@ -6,13 +6,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_http_client.h"
+#include "esp_crt_bundle.h"
 
 
 #define EXAMPLE_WIFI_SSID                       "TP-LINK_wenhui"
 #define EXAMPLE_WIFI_PWD                        "12345678"
 #define EXAMPLE_HTTP_SERVER_HOST                "httpbin.org"
 #define EXAMPLE_HTTP_RESPONSE_BUF_SIZE          1024
+#define EXAMPLE_USE_CRT_BUNDLE                  1
 
+#if EXAMPLE_USE_CRT_BUNDLE == 0
 static const char howsmyssl_root_cert_pem[]  =
 "-----BEGIN CERTIFICATE-----\n"
 "MIIFazCCA1OgAwIBAgIRAIIQz7DSQONZRGPgu2OCiwAwDQYJKoZIhvcNAQELBQAw"
@@ -46,6 +49,7 @@ static const char howsmyssl_root_cert_pem[]  =
 "emyPxgcYxn/eR44/KJ4EBs+lVDR3veyJm+kXQ99b21/+jh5Xos1AnX5iItreGCc="
 "\n"
 "-----END CERTIFICATE-----";
+#endif
 
 static const char *TAG = "http_client";
 
@@ -240,7 +244,11 @@ static void https_perform_evt_nonchunk(void)
         .path = "/",
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .event_handler = _http_event_handler,
+#if EXAMPLE_USE_CRT_BUNDLE == 0
         .cert_pem = howsmyssl_root_cert_pem,
+#else
+        .crt_bundle_attach = esp_crt_bundle_attach,
+#endif
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
@@ -255,9 +263,9 @@ static void https_perform_evt_nonchunk(void)
 
 static void http_client_task(void *pvParameters)
 {
-    http_perform_evt_nonchunk();
-    http_perform_evt_chunk();
-    http_nonperform_nonevt();
+    // http_perform_evt_nonchunk();
+    // http_perform_evt_chunk();
+    // http_nonperform_nonevt();
     https_perform_evt_nonchunk();
     vTaskDelete(NULL);
 }
