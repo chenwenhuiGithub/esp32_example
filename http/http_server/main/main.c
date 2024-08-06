@@ -9,63 +9,16 @@
 #include "esp_https_server.h"
 
 
-#define EXAMPLE_WIFI_SSID                       "TP-LINK_wenhui"
-#define EXAMPLE_WIFI_PWD                        "12345678"
-#define EXAMPLE_HTTP_RESPONSE_BUF_SIZE          1024
-#define EXAMPLE_USE_HTTPS                       0
+#define EXAMPLE_WIFI_SSID                           "TP-LINK_wenhui"
+#define EXAMPLE_WIFI_PWD                            "12345678"
+#define EXAMPLE_HTTP_RESPONSE_BUF_SIZE              1024
+#define EXAMPLE_USE_HTTPS                           1
 
 #if EXAMPLE_USE_HTTPS == 1
-static const uint8_t server_cert_pem[]  =
-"-----BEGIN CERTIFICATE-----\n"
-"MIIDKzCCAhOgAwIBAgIUBxM3WJf2bP12kAfqhmhhjZWv0ukwDQYJKoZIhvcNAQEL"
-"BQAwJTEjMCEGA1UEAwwaRVNQMzIgSFRUUFMgc2VydmVyIGV4YW1wbGUwHhcNMTgx"
-"MDE3MTEzMjU3WhcNMjgxMDE0MTEzMjU3WjAlMSMwIQYDVQQDDBpFU1AzMiBIVFRQ"
-"UyBzZXJ2ZXIgZXhhbXBsZTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB"
-"ALBint6nP77RCQcmKgwPtTsGK0uClxg+LwKJ3WXuye3oqnnjqJCwMEneXzGdG09T"
-"sA0SyNPwrEgebLCH80an3gWU4pHDdqGHfJQa2jBL290e/5L5MB+6PTs2NKcojK/k"
-"qcZkn58MWXhDW1NpAnJtjVniK2Ksvr/YIYSbyD+JiEs0MGxEx+kOl9d7hRHJaIzd"
-"GF/vO2pl295v1qXekAlkgNMtYIVAjUy9CMpqaQBCQRL+BmPSJRkXBsYk8GPnieS4"
-"sUsp53DsNvCCtWDT6fd9D1v+BB6nDk/FCPKhtjYOwOAZlX4wWNSZpRNr5dfrxKsb"
-"jAn4PCuR2akdF4G8WLUeDWECAwEAAaNTMFEwHQYDVR0OBBYEFMnmdJKOEepXrHI/"
-"ivM6mVqJgAX8MB8GA1UdIwQYMBaAFMnmdJKOEepXrHI/ivM6mVqJgAX8MA8GA1Ud"
-"EwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBADiXIGEkSsN0SLSfCF1VNWO3"
-"emBurfOcDq4EGEaxRKAU0814VEmU87btIDx80+z5Dbf+GGHCPrY7odIkxGNn0DJY"
-"W1WcF+DOcbiWoUN6DTkAML0SMnp8aGj9ffx3x+qoggT+vGdWVVA4pgwqZT7Ybntx"
-"bkzcNFW0sqmCv4IN1t4w6L0A87ZwsNwVpre/j6uyBw7s8YoJHDLRFT6g7qgn0tcN"
-"ZufhNISvgWCVJQy/SZjNBHSpnIdCUSJAeTY2mkM4sGxY0Widk8LnjydxZUSxC3Nl"
-"hb6pnMh3jRq4h0+5CZielA4/a+TdrNPv/qok67ot/XJdY3qHCCd8O2b14OVq9jo="
-"\n"
-"-----END CERTIFICATE-----";
-
-static const uint8_t server_privkey_pem[]  =
-"-----BEGIN PRIVATE KEY-----\n"
-"MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCwYp7epz++0QkH"
-"JioMD7U7BitLgpcYPi8Cid1l7snt6Kp546iQsDBJ3l8xnRtPU7ANEsjT8KxIHmyw"
-"h/NGp94FlOKRw3ahh3yUGtowS9vdHv+S+TAfuj07NjSnKIyv5KnGZJ+fDFl4Q1tT"
-"aQJybY1Z4itirL6/2CGEm8g/iYhLNDBsRMfpDpfXe4URyWiM3Rhf7ztqZdveb9al"
-"3pAJZIDTLWCFQI1MvQjKamkAQkES/gZj0iUZFwbGJPBj54nkuLFLKedw7DbwgrVg"
-"0+n3fQ9b/gQepw5PxQjyobY2DsDgGZV+MFjUmaUTa+XX68SrG4wJ+DwrkdmpHReB"
-"vFi1Hg1hAgMBAAECggEAaTCnZkl/7qBjLexIryC/CBBJyaJ70W1kQ7NMYfniWwui"
-"f0aRxJgOdD81rjTvkINsPp+xPRQO6oOadjzdjImYEuQTqrJTEUnntbu924eh+2D9"
-"Mf2CAanj0mglRnscS9mmljZ0KzoGMX6Z/EhnuS40WiJTlWlH6MlQU/FDnwC6U34y"
-"JKy6/jGryfsx+kGU/NRvKSru6JYJWt5v7sOrymHWD62IT59h3blOiP8GMtYKeQlX"
-"49om9Mo1VTIFASY3lrxmexbY+6FG8YO+tfIe0tTAiGrkb9Pz6tYbaj9FjEWOv4Vc"
-"+3VMBUVdGJjgqvE8fx+/+mHo4Rg69BUPfPSrpEg7sQKBgQDlL85G04VZgrNZgOx6"
-"pTlCCl/NkfNb1OYa0BELqWINoWaWQHnm6lX8YjrUjwRpBF5s7mFhguFjUjp/NW6D"
-"0EEg5BmO0ePJ3dLKSeOA7gMo7y7kAcD/YGToqAaGljkBI+IAWK5Su5yldrECTQKG"
-"YnMKyQ1MWUfCYEwHtPvFvE5aPwKBgQDFBWXekpxHIvt/B41Cl/TftAzE7/f58JjV"
-"MFo/JCh9TDcH6N5TMTRS1/iQrv5M6kJSSrHnq8pqDXOwfHLwxetpk9tr937VRzoL"
-"CuG1Ar7c1AO6ujNnAEmUVC2DppL/ck5mRPWK/kgLwZSaNcZf8sydRgphsW1ogJin"
-"7g0nGbFwXwKBgQCPoZY07Pr1TeP4g8OwWTu5F6dSvdU2CAbtZthH5q98u1n/cAj1"
-"noak1Srpa3foGMTUn9CHu+5kwHPIpUPNeAZZBpq91uxa5pnkDMp3UrLIRJ2uZyr8"
-"4PxcknEEh8DR5hsM/IbDcrCJQglM19ZtQeW3LKkY4BsIxjDf45ymH407IQKBgE/g"
-"Ul6cPfOxQRlNLH4VMVgInSyyxWx1mODFy7DRrgCuh5kTVh+QUVBM8x9lcwAn8V9/"
-"nQT55wR8E603pznqY/jX0xvAqZE6YVPcw4kpZcwNwL1RhEl8GliikBlRzUL3SsW3"
-"q30AfqEViHPE3XpE66PPo6Hb1ymJCVr77iUuC3wtAoGBAIBrOGunv1qZMfqmwAY2"
-"lxlzRgxgSiaev0lTNxDzZkmU/u3dgdTwJ5DDANqPwJc6b8SGYTp9rQ0mbgVHnhIB"
-"jcJQBQkTfq6Z0H6OoTVi7dPs3ibQJFrtkoyvYAbyk36quBmNRjVh6rc8468bhXYr"
-"v/t+MeGJP/0Zw8v/X2CFll96\n"
-"-----END PRIVATE KEY-----";
+extern const uint8_t server_cert_pem_start[]        asm("_binary_server_cert_pem_start");
+extern const uint8_t server_cert_pem_end[]          asm("_binary_server_cert_pem_end");
+extern const uint8_t server_prvtkey_pem_start[]     asm("_binary_server_prvtkey_pem_start");
+extern const uint8_t server_prvtkey_pem_end[]       asm("_binary_server_prvtkey_pem_end");
 #endif
 
 static esp_err_t hello_get_handler(httpd_req_t *req);
@@ -167,10 +120,10 @@ static void start_http_server_task()
 
 #if EXAMPLE_USE_HTTPS == 1
     httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
-    config.servercert = server_cert_pem;
-    config.servercert_len = sizeof(server_cert_pem);
-    config.prvtkey_pem = server_privkey_pem;
-    config.prvtkey_len = sizeof(server_privkey_pem);
+    config.servercert = server_cert_pem_start;
+    config.servercert_len = server_cert_pem_end - server_cert_pem_start;
+    config.prvtkey_pem = server_prvtkey_pem_start;
+    config.prvtkey_len = server_prvtkey_pem_end - server_prvtkey_pem_start;
     if (httpd_ssl_start(&server, &config) == ESP_OK) {
         ESP_LOGI(TAG, "start https server ok, port:%d", config.port_secure);
 #else
