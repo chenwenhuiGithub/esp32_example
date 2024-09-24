@@ -38,6 +38,52 @@ void gen_random(uint8_t *data, uint32_t len) {
     mbedtls_entropy_free(&entropy);
 }
 
+void calc_md5(uint8_t *src, uint32_t len, uint8_t *hash, uint32_t *olen) {
+    const uint32_t BLOCK_SIZE = 128;
+    uint32_t blocks = len / BLOCK_SIZE;
+    uint32_t last_block_size = len % BLOCK_SIZE;
+    uint32_t i = 0;
+    mbedtls_md_context_t md_ctx;
+
+    mbedtls_md_init(&md_ctx);
+    mbedtls_md_setup(&md_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_MD5), 0);
+    mbedtls_md_starts(&md_ctx);
+    while (i < blocks) {
+        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), BLOCK_SIZE);
+        i++;
+    }
+    if (last_block_size) {
+        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), last_block_size);
+    }
+    mbedtls_md_finish(&md_ctx, hash);
+    mbedtls_md_free(&md_ctx);
+
+    *olen = mbedtls_md_get_size(mbedtls_md_info_from_type(MBEDTLS_MD_MD5)); // 16B
+}
+
+void calc_sha1(uint8_t *src, uint32_t len, uint8_t *hash, uint32_t *olen) {
+    const uint32_t BLOCK_SIZE = 128;
+    uint32_t blocks = len / BLOCK_SIZE;
+    uint32_t last_block_size = len % BLOCK_SIZE;
+    uint32_t i = 0;
+    mbedtls_md_context_t md_ctx;
+
+    mbedtls_md_init(&md_ctx);
+    mbedtls_md_setup(&md_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA1), 0);
+    mbedtls_md_starts(&md_ctx);
+    while (i < blocks) {
+        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), BLOCK_SIZE);
+        i++;
+    }
+    if (last_block_size) {
+        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), last_block_size);
+    }
+    mbedtls_md_finish(&md_ctx, hash);
+    mbedtls_md_free(&md_ctx);
+
+    *olen = mbedtls_md_get_size(mbedtls_md_info_from_type(MBEDTLS_MD_SHA1)); // 20B
+}
+
 void calc_sha256(uint8_t *src, uint32_t len, uint8_t *hash, uint32_t *olen) {
     const uint32_t BLOCK_SIZE = 128;
     uint32_t blocks = len / BLOCK_SIZE;
@@ -59,29 +105,6 @@ void calc_sha256(uint8_t *src, uint32_t len, uint8_t *hash, uint32_t *olen) {
     mbedtls_md_free(&md_ctx);
 
     *olen = mbedtls_md_get_size(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256)); // 32B
-}
-
-void calc_sha512(uint8_t *src, uint32_t len, uint8_t *hash, uint32_t *olen) {
-    const uint32_t BLOCK_SIZE = 128;
-    uint32_t blocks = len / BLOCK_SIZE;
-    uint32_t last_block_size = len % BLOCK_SIZE;
-    uint32_t i = 0;
-    mbedtls_md_context_t md_ctx;
-
-    mbedtls_md_init(&md_ctx);
-    mbedtls_md_setup(&md_ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA512), 0);
-    mbedtls_md_starts(&md_ctx);
-    while (i < blocks) {
-        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), BLOCK_SIZE);
-        i++;
-    }
-    if (last_block_size) {
-        mbedtls_md_update(&md_ctx, src + (i * BLOCK_SIZE), last_block_size);
-    }
-    mbedtls_md_finish(&md_ctx, hash);
-    mbedtls_md_free(&md_ctx);
-
-    *olen = mbedtls_md_get_size(mbedtls_md_info_from_type(MBEDTLS_MD_SHA512)); // 64B
 }
 
 void calc_hmac_sha256(uint8_t *src, uint32_t src_len, uint8_t *key, uint32_t key_len, uint8_t *hmac, uint32_t *olen) {
@@ -533,10 +556,10 @@ void ecc_gen_keypair(mbedtls_mpi *d, mbedtls_ecp_point *Q, uint8_t *pubkey, uint
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
 
     mbedtls_ecp_group_init(&grp);
-    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256K1);
+    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1);
     mbedtls_ecp_gen_keypair(&grp, d, Q, mbedtls_ctr_drbg_random, &ctr_drbg);
     mbedtls_ecp_point_write_binary(&grp, Q, MBEDTLS_ECP_PF_UNCOMPRESSED, (size_t *)olen, pubkey, size); // 65 = 2 * (grp.bit_size / 8) + 1, pubkey[0] = 0x04
-    // ESP_LOGI(TAG, "ecc secp256k1 param:");
+    // ESP_LOGI(TAG, "ecc secp256r1 param:");
     // mbedtls_mpi_write_file("a = ", &grp.A, 16, NULL);
     // mbedtls_mpi_write_file("b = ", &grp.B, 16, NULL);
     // mbedtls_mpi_write_file("p = ", &grp.P, 16, NULL);
@@ -559,7 +582,7 @@ void ecc_sign(uint8_t *hash, uint32_t hash_len, mbedtls_mpi *d, mbedtls_mpi *r, 
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
 
     mbedtls_ecp_group_init(&grp);
-    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256K1);
+    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1);
     mbedtls_ecdsa_sign(&grp, r, s, d, hash, hash_len, mbedtls_ctr_drbg_random, &ctr_drbg); // r/s = grp.bit_size / 8
     mbedtls_ecp_group_free(&grp);
 
@@ -578,7 +601,7 @@ int ecc_verify(uint8_t *hash, uint32_t hash_len, mbedtls_ecp_point *Q, mbedtls_m
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
 
     mbedtls_ecp_group_init(&grp);
-    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256K1);
+    mbedtls_ecp_group_load(&grp, MBEDTLS_ECP_DP_SECP256R1);
     ret = mbedtls_ecdsa_verify(&grp, hash, hash_len, Q, r, s);
     mbedtls_ecp_group_free(&grp);
 
@@ -598,7 +621,7 @@ void ecc_pk_gen_keypair(uint8_t *pubkey, uint32_t pubkey_size, uint32_t *pubkey_
 
     mbedtls_pk_init(&pk_ctx);
     mbedtls_pk_setup(&pk_ctx, mbedtls_pk_info_from_type(MBEDTLS_PK_ECKEY));
-    mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256K1, mbedtls_pk_ec(pk_ctx), mbedtls_ctr_drbg_random, &ctr_drbg);
+    mbedtls_ecp_gen_key(MBEDTLS_ECP_DP_SECP256R1, mbedtls_pk_ec(pk_ctx), mbedtls_ctr_drbg_random, &ctr_drbg);
 #if CONFIG_ECC_KEYPAIR_FORMAT_PEM == 1
     mbedtls_pk_write_pubkey_pem(&pk_ctx, pubkey, pubkey_size); // output include \0 byte, call mbedtls_ecp_point_write_binary();
     mbedtls_pk_write_key_pem(&pk_ctx, privkey, privkey_size);  // output include \0 byte, call mbedtls_ecp_write_key_ext();
@@ -655,35 +678,35 @@ int ecc_pk_verify(uint8_t *hash, uint32_t hash_len, uint8_t *pubkey, uint32_t pu
     return ret;
 }
 
-void x509_crt_sign(uint8_t *pubkey, uint32_t pubkey_len, char *subject_name, char *issuer_name, char *sn, char *not_before, char *not_after,
-                   uint8_t *ca_privkey, uint32_t ca_privkey_len, uint8_t is_ca, uint8_t *crt, uint32_t size, uint32_t *olen) {
+void x509_crt_sign(uint8_t *subject_pubkey, uint32_t subject_pubkey_len, char *subject_name, char *issuer_name, char *sn, char *not_before, char *not_after,
+                   uint8_t *issuer_privkey, uint32_t issuer_privkey_len, uint8_t is_ca, uint8_t *crt, uint32_t size, uint32_t *olen) {
     mbedtls_entropy_context entropy;
     mbedtls_ctr_drbg_context ctr_drbg;
-    mbedtls_pk_context pk_ctx;
-    mbedtls_pk_context ca_pk_ctx;
+    mbedtls_pk_context subject_pk_ctx;
+    mbedtls_pk_context issuer_pk_ctx;
     mbedtls_x509write_cert x509write;
 
     mbedtls_entropy_init(&entropy);
     mbedtls_ctr_drbg_init(&ctr_drbg);
     mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
 
-    mbedtls_pk_init(&pk_ctx);
-    mbedtls_pk_init(&ca_pk_ctx);
-    mbedtls_pk_parse_public_key(&pk_ctx, pubkey, pubkey_len);
-    mbedtls_pk_parse_key(&ca_pk_ctx, ca_privkey, ca_privkey_len, NULL, 0, mbedtls_ctr_drbg_random, &ctr_drbg);
+    mbedtls_pk_init(&subject_pk_ctx);
+    mbedtls_pk_init(&issuer_pk_ctx);
+    mbedtls_pk_parse_public_key(&subject_pk_ctx, subject_pubkey, subject_pubkey_len);
+    mbedtls_pk_parse_key(&issuer_pk_ctx, issuer_privkey, issuer_privkey_len, NULL, 0, mbedtls_ctr_drbg_random, &ctr_drbg);
     mbedtls_x509write_crt_init(&x509write);
     mbedtls_x509write_crt_set_version(&x509write, MBEDTLS_X509_CRT_VERSION_3);
     mbedtls_x509write_crt_set_md_alg(&x509write, MBEDTLS_MD_SHA256);
     mbedtls_x509write_crt_set_subject_name(&x509write, subject_name);  
     mbedtls_x509write_crt_set_issuer_name(&x509write, issuer_name);  
-    mbedtls_x509write_crt_set_subject_key(&x509write, &pk_ctx);
-    mbedtls_x509write_crt_set_issuer_key(&x509write, &ca_pk_ctx);
+    mbedtls_x509write_crt_set_subject_key(&x509write, &subject_pk_ctx);
+    mbedtls_x509write_crt_set_issuer_key(&x509write, &issuer_pk_ctx);
     mbedtls_x509write_crt_set_serial_raw(&x509write, (unsigned char *)sn, strlen(sn));
     mbedtls_x509write_crt_set_validity(&x509write, not_before, not_after);
     mbedtls_x509write_crt_set_basic_constraints(&x509write, is_ca, -1);
     mbedtls_x509write_crt_set_subject_key_identifier(&x509write);
     mbedtls_x509write_crt_set_authority_key_identifier(&x509write);
-    mbedtls_x509write_crt_set_key_usage(&x509write, MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+    mbedtls_x509write_crt_set_key_usage(&x509write, MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
 #if CONFIG_X509_CRT_FORMAT_PEM == 1
     mbedtls_x509write_crt_pem(&x509write, crt, size, mbedtls_entropy_func, &entropy);
     *olen = strlen((char *)crt) + 1;
@@ -692,25 +715,25 @@ void x509_crt_sign(uint8_t *pubkey, uint32_t pubkey_len, char *subject_name, cha
     memmove(crt, crt + (size - *olen), *olen);
 #endif
     mbedtls_x509write_crt_free(&x509write);
-    mbedtls_pk_free(&pk_ctx);
-    mbedtls_pk_free(&ca_pk_ctx);
+    mbedtls_pk_free(&subject_pk_ctx);
+    mbedtls_pk_free(&issuer_pk_ctx);
 
     mbedtls_ctr_drbg_free(&ctr_drbg);
     mbedtls_entropy_free(&entropy);
 }
 
-int x509_crt_verify(uint8_t *crt, uint32_t crt_len, uint8_t *ca_crt, uint32_t ca_crt_len, uint32_t *flags) {
+int x509_crt_verify(uint8_t *subject_crt, uint32_t subject_crt_len, uint8_t *issuer_crt, uint32_t issuer_crt_len, uint32_t *flags) {
     int ret = -1;
-    mbedtls_x509_crt x509_crt;
-    mbedtls_x509_crt x509_ca_crt;
+    mbedtls_x509_crt subject_x509_crt;
+    mbedtls_x509_crt issuer_x509_crt;
 
-    mbedtls_x509_crt_init(&x509_crt);
-    mbedtls_x509_crt_init(&x509_ca_crt);
-    mbedtls_x509_crt_parse(&x509_crt, crt, crt_len);
-    mbedtls_x509_crt_parse(&x509_ca_crt, ca_crt, ca_crt_len);
-    ret = mbedtls_x509_crt_verify(&x509_crt, &x509_ca_crt, NULL, NULL, flags, NULL, NULL);
-    mbedtls_x509_crt_free(&x509_crt);
-    mbedtls_x509_crt_free(&x509_ca_crt);
+    mbedtls_x509_crt_init(&subject_x509_crt);
+    mbedtls_x509_crt_init(&issuer_x509_crt);
+    mbedtls_x509_crt_parse(&subject_x509_crt, subject_crt, subject_crt_len);
+    mbedtls_x509_crt_parse(&issuer_x509_crt, issuer_crt, issuer_crt_len);
+    ret = mbedtls_x509_crt_verify(&subject_x509_crt, &issuer_x509_crt, NULL, NULL, flags, NULL, NULL);
+    mbedtls_x509_crt_free(&subject_x509_crt);
+    mbedtls_x509_crt_free(&issuer_x509_crt);
 
     return ret;
 }
@@ -780,12 +803,16 @@ void test_hash() {
         list++;
     }
 
-    calc_sha256(src_data, sizeof(src_data), hash, &hash_len);
-    ESP_LOGI(TAG, "sha256 data, len:%lu", hash_len);
+    calc_md5(src_data, sizeof(src_data), hash, &hash_len);
+    ESP_LOGI(TAG, "md5 data, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 
-    calc_sha512(src_data, sizeof(src_data), hash, &hash_len);
-    ESP_LOGI(TAG, "sha512 data, len:%lu", hash_len);
+    calc_sha1(src_data, sizeof(src_data), hash, &hash_len);
+    ESP_LOGI(TAG, "sha1 data, len:%lu", hash_len);
+    ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
+
+    calc_sha256(src_data, sizeof(src_data), hash, &hash_len);
+    ESP_LOGI(TAG, "sha256 data, len:%lu", hash_len);
     ESP_LOG_BUFFER_HEX(TAG, hash, hash_len);
 }
 
@@ -1316,92 +1343,92 @@ void test_ecc_pk_sign() {
 }
 
 void test_x509_crt() {
-    uint8_t *pubkey = NULL, *privkey = NULL, *crt = NULL, *ca_pubkey = NULL, *ca_privkey = NULL, *ca_crt = NULL;
-    uint32_t pubkey_len = 0, privkey_len = 0, crt_len = 0, ca_pubkey_len = 0, ca_privkey_len = 0, ca_crt_len = 0;
-    pubkey = pvPortMalloc(2048);
-    privkey = pvPortMalloc(2048);
-    crt = pvPortMalloc(2048);
-    ca_pubkey = pvPortMalloc(2048);
-    ca_privkey = pvPortMalloc(2048);
-    ca_crt = pvPortMalloc(2048);
+    uint8_t *subject_pubkey = NULL, *subject_privkey = NULL, *subject_crt = NULL, *issuer_pubkey = NULL, *issuer_privkey = NULL, *issuer_crt = NULL;
+    uint32_t subject_pubkey_len = 0, subject_privkey_len = 0, subject_crt_len = 0, issuer_pubkey_len = 0, issuer_privkey_len = 0, issuer_crt_len = 0;
+    subject_pubkey = pvPortMalloc(2048);
+    subject_privkey = pvPortMalloc(2048);
+    subject_crt = pvPortMalloc(2048);
+    issuer_pubkey = pvPortMalloc(2048);
+    issuer_privkey = pvPortMalloc(2048);
+    issuer_crt = pvPortMalloc(2048);
     int ret = -1;
     uint32_t flags = 0;
     char verify_info[128] = {0};
+    char *subject_name = "C=CN,ST=Zhejiang,L=Hangzhou,O=subject Co Ltd,CN=*.subject.com";
+    char *issuer_name  = "C=CN,ST=Zhejiang,L=Hangzhou,O=issuer Co Ltd,CN=*.issuer.com";
 
-    // generate ca ecc keypair
-    ecc_pk_gen_keypair(ca_pubkey, 2048, &ca_pubkey_len, ca_privkey, 2048, &ca_privkey_len);
+    // generate issuer ecc keypair
+    ecc_pk_gen_keypair(issuer_pubkey, 2048, &issuer_pubkey_len, issuer_privkey, 2048, &issuer_privkey_len);
 #if CONFIG_ECC_KEYPAIR_FORMAT_PEM == 1
-    ESP_LOGI(TAG, "ca ecc pubkey pem, len:%lu", ca_pubkey_len);
-    ESP_LOGI(TAG, "%s", ca_pubkey);
-    ESP_LOGI(TAG, "ca ecc privkey pem, len:%lu", ca_privkey_len);
-    ESP_LOGI(TAG, "%s", ca_privkey);
+    ESP_LOGI(TAG, "issuer ecc pubkey pem, len:%lu", issuer_pubkey_len);
+    ESP_LOGI(TAG, "%s", issuer_pubkey);
+    ESP_LOGI(TAG, "issuer ecc privkey pem, len:%lu", issuer_privkey_len);
+    ESP_LOGI(TAG, "%s", issuer_privkey);
 #else
-    ESP_LOGI(TAG, "ca ecc pubkey der, len:%lu", ca_pubkey_len);
-    ESP_LOG_BUFFER_HEX(TAG, ca_pubkey, ca_pubkey_len);
-    ESP_LOGI(TAG, "ca ecc privkey der, len:%lu", ca_privkey_len);
-    ESP_LOG_BUFFER_HEX(TAG, ca_privkey, ca_privkey_len);
+    ESP_LOGI(TAG, "issuer ecc pubkey der, len:%lu", issuer_pubkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, issuer_pubkey, issuer_pubkey_len);
+    ESP_LOGI(TAG, "issuer ecc privkey der, len:%lu", issuer_privkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, issuer_privkey, issuer_privkey_len);
 #endif
 
     // generate subject rsa keypair
-    rsa_pk_gen_keypair(pubkey, 2048, &pubkey_len, privkey, 2048, &privkey_len);
+    rsa_pk_gen_keypair(subject_pubkey, 2048, &subject_pubkey_len, subject_privkey, 2048, &subject_privkey_len);
 #if CONFIG_ECC_KEYPAIR_FORMAT_PEM == 1
-    ESP_LOGI(TAG, "subject rsa pubkey pem, len:%lu", pubkey_len);
-    ESP_LOGI(TAG, "%s", pubkey);
-    ESP_LOGI(TAG, "subject rsa privkey pem, len:%lu", privkey_len);
-    ESP_LOGI(TAG, "%s", privkey);
+    ESP_LOGI(TAG, "subject rsa pubkey pem, len:%lu", subject_pubkey_len);
+    ESP_LOGI(TAG, "%s", subject_pubkey);
+    ESP_LOGI(TAG, "subject rsa privkey pem, len:%lu", subject_privkey_len);
+    ESP_LOGI(TAG, "%s", subject_privkey);
 #else
-    ESP_LOGI(TAG, "subject rsa pubkey der, len:%lu", pubkey_len);
-    ESP_LOG_BUFFER_HEX(TAG, pubkey, pubkey_len);
-    ESP_LOGI(TAG, "subject rsa privkey der, len:%lu", privkey_len);
-    ESP_LOG_BUFFER_HEX(TAG, privkey, privkey_len);
+    ESP_LOGI(TAG, "subject rsa pubkey der, len:%lu", subject_pubkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_pubkey, subject_pubkey_len);
+    ESP_LOGI(TAG, "subject rsa privkey der, len:%lu", subject_privkey_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_privkey, subject_privkey_len);
 #endif
 
-    // self-sign ca cert
-    x509_crt_sign(ca_pubkey, ca_pubkey_len,
-                  "C=CN,ST=Zhejiang,L=Hangzhou,O=CA self sign,CN=*.ca.com", "C=CN,ST=Zhejiang,L=Hangzhou,O=CA self sign,CN=*.ca.com",
-                  "1234567890", "20230101000000", "20251231235959", ca_privkey, ca_privkey_len, 1, ca_crt, 2048, &ca_crt_len);
+    // self-sign issuer crt
+    x509_crt_sign(issuer_pubkey, issuer_pubkey_len, issuer_name, issuer_name, "1234567890", "20230101000000", "20251231235959",
+                  issuer_privkey, issuer_privkey_len, 1, issuer_crt, 2048, &issuer_crt_len);
 #if CONFIG_X509_CRT_FORMAT_PEM == 1
-    ESP_LOGI(TAG, "ca ecc cert pem, len:%lu", ca_crt_len);
-    ESP_LOGI(TAG, "%s", ca_crt);
+    ESP_LOGI(TAG, "issuer crt pem, len:%lu", issuer_crt_len);
+    ESP_LOGI(TAG, "%s", issuer_crt);
 #else
-    ESP_LOGI(TAG, "ca ecc cert der, len:%lu", ca_crt_len);
-    ESP_LOG_BUFFER_HEX(TAG, ca_crt, ca_crt_len);
+    ESP_LOGI(TAG, "issuer crt der, len:%lu", issuer_crt_len);
+    ESP_LOG_BUFFER_HEX(TAG, issuer_crt, issuer_crt_len);
 #endif
 
-    // sign subject cert by ca
-    x509_crt_sign(pubkey, pubkey_len,
-                  "C=CN,ST=Zhejiang,L=Hangzhou,O=abc Co Ltd,CN=*.abc.com", "C=CN,ST=Zhejiang,L=Hangzhou,O=CA self sign,CN=*.ca.com",
-                  "12345", "20240101000000", "20241231235959", ca_privkey, ca_privkey_len, 0, crt, 2048, &crt_len);
+    // sign subject crt by issuer
+    x509_crt_sign(subject_pubkey, subject_pubkey_len, subject_name, issuer_name, "12345", "20240101000000", "20241231235959",
+                  issuer_privkey, issuer_privkey_len, 0, subject_crt, 2048, &subject_crt_len);
 #if CONFIG_X509_CRT_FORMAT_PEM == 1
-    ESP_LOGI(TAG, "subject rsa cert pem, len:%lu", crt_len);
-    ESP_LOGI(TAG, "%s", crt);
+    ESP_LOGI(TAG, "subject crt pem, len:%lu", subject_crt_len);
+    ESP_LOGI(TAG, "%s", subject_crt);
 #else
-    ESP_LOGI(TAG, "subject rsa cert der, len:%lu", crt_len);
-    ESP_LOG_BUFFER_HEX(TAG, crt, crt_len);
+    ESP_LOGI(TAG, "subject crt der, len:%lu", subject_crt_len);
+    ESP_LOG_BUFFER_HEX(TAG, subject_crt, subject_crt_len);
 #endif
 
-    // verify self-sign ca cert
-    ret = x509_crt_verify(ca_crt, ca_crt_len, ca_crt, ca_crt_len, &flags);
-    ESP_LOGI(TAG, "ca ecc cert verify:%d", ret);
+    // verify self-sign issuer crt
+    ret = x509_crt_verify(issuer_crt, issuer_crt_len, issuer_crt, issuer_crt_len, &flags);
+    ESP_LOGI(TAG, "issuer crt verify:%d", ret);
     if (ret) {
         mbedtls_x509_crt_verify_info(verify_info, sizeof(verify_info), " ", flags);
-        ESP_LOGE(TAG, "ca ecc cert verify failed:%s", verify_info);
+        ESP_LOGE(TAG, "issuer crt verify failed:%s", verify_info);
     }
 
-    // verify subject cert by ca cert
-    ret = x509_crt_verify(crt, crt_len, ca_crt, ca_crt_len, &flags);
-    ESP_LOGI(TAG, "subject ecc cert verify:%d", ret);
+    // verify subject crt by issuer crt
+    ret = x509_crt_verify(subject_crt, subject_crt_len, issuer_crt, issuer_crt_len, &flags);
+    ESP_LOGI(TAG, "subject crt verify:%d", ret);
     if (ret) {
         mbedtls_x509_crt_verify_info(verify_info, sizeof(verify_info), " ", flags);
-        ESP_LOGE(TAG, "subject ecc cert verify failed:%s", verify_info);
+        ESP_LOGE(TAG, "subject crt verify failed:%s", verify_info);
     }
 
-    vPortFree(pubkey);
-    vPortFree(privkey);
-    vPortFree(crt);
-    vPortFree(ca_pubkey);
-    vPortFree(ca_privkey);
-    vPortFree(ca_crt);
+    vPortFree(subject_pubkey);
+    vPortFree(subject_privkey);
+    vPortFree(subject_crt);
+    vPortFree(issuer_pubkey);
+    vPortFree(issuer_privkey);
+    vPortFree(issuer_crt);
 }
 
 void test_mbedtls(void *pvParameters)
