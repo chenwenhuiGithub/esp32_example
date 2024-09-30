@@ -15,6 +15,7 @@
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
 #include "esp_http_server.h"
+#include "driver/gpio.h"
 #include "ir_rmt.h"
 
 
@@ -22,6 +23,8 @@
 #define EXAMPLE_WIFI_AP_NETMASK                 "255.255.255.0"
 #define EXAMPLE_WIFI_AP_CHANNEL                 5
 #define EXAMPLE_WIFI_AP_MAX_CONN                2
+
+#define EXAMPLE_LED_GPIO_NUM                    2
 
 #define EXAMPLE_ALIYUN_PK                       "a1GCY1V8kBX"
 #define EXAMPLE_ALIYUN_DK                       "ovHa9DNEP3ma1WZs6aNE"
@@ -66,6 +69,7 @@ static char sta_ssid[32] = {0};
 static char sta_pwd[64] = {0};
 static size_t sta_ssid_len = 0;
 static size_t sta_pwd_len = 0;
+static uint8_t network_stat = 0; // 0 - not connected wifi, 1 - connected wifi, 2 - connected cloud
 
 static uint8_t channel_id = 0;
 static uint8_t rmt_id = 0;
@@ -343,6 +347,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGE(TAG, "MQTT_EVENT_DISCONNECTED");
+        network_stat = 1;
         break;
     case MQTT_EVENT_SUBSCRIBED:
         if (event->msg_id == subscribe_id[0]) {
@@ -350,6 +355,7 @@ static void mqtt_event_handler(void *arg, esp_event_base_t base, int32_t event_i
         } else if (event->msg_id == subscribe_id[1]) {
             ESP_LOGI(TAG, "subscribe ok:%s", EXAMPLE_MQTT_TOPIC_OTA_TASK);
             report_version();
+            network_stat = 2;
         }
         break;
     case MQTT_EVENT_PUBLISHED:
@@ -477,6 +483,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
         case WIFI_EVENT_STA_DISCONNECTED:
             sta_disconn_event = (wifi_event_sta_disconnected_t *)event_data;
             ESP_LOGE(TAG, "wifi_sta disconnected, reason:%u", sta_disconn_event->reason);
+            network_stat = 0;
             esp_wifi_connect();
             break;
         case WIFI_EVENT_AP_STACONNECTED:
@@ -499,6 +506,7 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
             got_ip_event = (ip_event_got_ip_t *)event_data;
             ESP_LOGI(TAG, "wifi_sta got ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
                 IP2STR(&got_ip_event->ip_info.ip), IP2STR(&got_ip_event->ip_info.netmask), IP2STR(&got_ip_event->ip_info.gw));
+            network_stat = 1;
             mqtt_connect_cloud();
             break;
         case IP_EVENT_STA_LOST_IP:
@@ -511,6 +519,35 @@ static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+static void led_task(void* parameter) {	
+    gpio_config_t led_conf = {0};
+
+    led_conf.intr_type = GPIO_INTR_DISABLE;
+    led_conf.pin_bit_mask = 1ULL << EXAMPLE_LED_GPIO_NUM;
+    led_conf.mode = GPIO_MODE_OUTPUT;
+    led_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    led_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+    gpio_config(&led_conf);
+
+    gpio_set_level(EXAMPLE_LED_GPIO_NUM, 0); // 0 - off, 1 - on
+
+    while (1) {
+        if (0 == network_stat) {
+            gpio_set_level(EXAMPLE_LED_GPIO_NUM, 1);
+            vTaskDelay(500/portTICK_PERIOD_MS);
+            gpio_set_level(EXAMPLE_LED_GPIO_NUM, 0);
+            vTaskDelay(500/portTICK_PERIOD_MS);
+        } else if (1 == network_stat) {
+            gpio_set_level(EXAMPLE_LED_GPIO_NUM, 1);
+            vTaskDelay(1000/portTICK_PERIOD_MS);
+            gpio_set_level(EXAMPLE_LED_GPIO_NUM, 0);
+            vTaskDelay(1000/portTICK_PERIOD_MS);            
+        } else if (2 == network_stat) {
+            gpio_set_level(EXAMPLE_LED_GPIO_NUM, 1);
+            vTaskDelay(1000/portTICK_PERIOD_MS);       
+        }
+    }
+}
 
 void app_main(void) {
     esp_err_t err = ESP_OK;
@@ -570,6 +607,8 @@ void app_main(void) {
     http_start_server();
 
     ir_rmt_init();
+
+    xTaskCreate(led_task, "led_task", 1024, NULL, 1, NULL);
 
     while (1) {
         ESP_LOGI(TAG, "%lu", i++);
