@@ -14,11 +14,15 @@
 #include "esp_app_format.h"
 #include "esp_ota_ops.h"
 #include "esp_http_client.h"
+#include "esp_http_server.h"
 #include "ir_rmt.h"
 
 
-#define EXAMPLE_WIFI_SSID                       "TP-LINK_wenhui"
-#define EXAMPLE_WIFI_PWD                        "15958187121"
+#define EXAMPLE_WIFI_AP_IP                      "192.168.10.10"
+#define EXAMPLE_WIFI_AP_NETMASK                 "255.255.255.0"
+#define EXAMPLE_WIFI_AP_CHANNEL                 5
+#define EXAMPLE_WIFI_AP_MAX_CONN                2
+
 #define EXAMPLE_ALIYUN_PK                       "a1GCY1V8kBX"
 #define EXAMPLE_ALIYUN_DK                       "ovHa9DNEP3ma1WZs6aNE"
 #define EXAMPLE_ALIYUN_DS                       "e36742c9698a83e63cf05c691a4bcc07"
@@ -32,7 +36,6 @@
 #define EXAMPLE_MQTT_TOPIC_OTA_VERSION          "/ota/device/inform/"EXAMPLE_ALIYUN_PK"/"EXAMPLE_ALIYUN_DK
 #define EXAMPLE_MQTT_TOPIC_OTA_TASK             "/ota/device/upgrade/"EXAMPLE_ALIYUN_PK"/"EXAMPLE_ALIYUN_DK
 #define EXAMPLE_MQTT_TOPIC_OTA_PROGRESS         "/ota/device/progress/"EXAMPLE_ALIYUN_PK"/"EXAMPLE_ALIYUN_DK
-#define EXAMPLE_TIMER_PERIOD_SAVE_TSL           10000 // 10s
 #define EXAMPLE_TIMER_PERIOD_REPORT_PROGRESS    3000  // 3s
 
 
@@ -49,15 +52,40 @@ static const char *TAG = "ir_rmt";
 extern const uint8_t global_sign_crt_start[]    asm("_binary_global_sign_crt_start");
 extern const uint8_t global_sign_crt_end[]      asm("_binary_global_sign_crt_end");
 
+extern const uint8_t index_html_gz_start[]      asm("_binary_index_html_gz_start");
+extern const uint8_t index_html_gz_end[]        asm("_binary_index_html_gz_end");
+
 static esp_mqtt_client_handle_t hd_mqtt = NULL;
 static esp_ota_handle_t hd_ota = 0;
 static esp_http_client_handle_t hd_http = NULL;
+static httpd_handle_t hd_httpd = NULL;
+static nvs_handle_t hd_nvs = 0;
 static int subscribe_id[2] = {0};
 static ota_task_info_t ota_task = {0};
+static char sta_ssid[32] = {0};
+static char sta_pwd[64] = {0};
+static size_t sta_ssid_len = 0;
+static size_t sta_pwd_len = 0;
 
 static uint8_t channel_id = 0;
 static uint8_t rmt_id = 0;
 
+static void read_cfg_from_flash() {
+    nvs_open("ir_rmt", NVS_READWRITE, &hd_nvs);
+    sta_ssid_len = sizeof(sta_ssid);
+    sta_pwd_len = sizeof(sta_pwd);
+    nvs_get_str(hd_nvs, "sta_ssid", sta_ssid, &sta_ssid_len);
+    nvs_get_str(hd_nvs, "sta_pwd", sta_pwd, &sta_pwd_len);
+    nvs_close(hd_nvs);
+}
+
+static void save_cfg_to_flash() {
+    nvs_open("ir_rmt", NVS_READWRITE, &hd_nvs);
+    nvs_set_str(hd_nvs, "sta_ssid", sta_ssid);
+    nvs_set_str(hd_nvs, "sta_pwd", sta_pwd);
+    nvs_commit(hd_nvs);
+    nvs_close(hd_nvs);
+}
 
 static char *gen_post_msg_id() {
     static mbedtls_entropy_context entropy;
@@ -367,24 +395,97 @@ static void mqtt_connect_cloud() {
     esp_mqtt_client_start(hd_mqtt);
 }
 
-static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    wifi_event_sta_connected_t* conn_event = NULL;
-    wifi_event_sta_disconnected_t* dis_event = NULL;
-    ip_event_got_ip_t* got_event = NULL;
+static esp_err_t http_get_index_handler(httpd_req_t *req) {
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    return httpd_resp_send(req, (const char *)index_html_gz_start, index_html_gz_end - index_html_gz_start);
+}
+
+static esp_err_t http_cfg_wifi_handler(httpd_req_t *req) {
+    char post_data[256] = {0};
+    cJSON *root = NULL, *ssid_json = NULL, *pwd_json = NULL;
+    wifi_config_t sta_cfg = {0};
+
+    httpd_req_recv(req, post_data, sizeof(post_data));
+    ESP_LOGI(TAG, "http post data:%s", post_data);
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_send(req, "success", strlen("success"));
+
+    root = cJSON_Parse(post_data);
+    ssid_json = cJSON_GetObjectItem(root, "ssid");
+    pwd_json = cJSON_GetObjectItem(root, "pwd");
+    memcpy(sta_ssid, ssid_json->valuestring, strlen(ssid_json->valuestring));
+    memcpy(sta_pwd, pwd_json->valuestring, strlen(pwd_json->valuestring));
+    sta_ssid_len = strlen(ssid_json->valuestring);
+    sta_pwd_len = strlen(pwd_json->valuestring);
+    cJSON_Delete(root);
+
+    save_cfg_to_flash();
+
+    esp_wifi_disconnect();
+    memcpy(sta_cfg.sta.ssid, sta_ssid, sta_ssid_len);
+    memcpy(sta_cfg.sta.password, sta_pwd, sta_pwd_len);
+    esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
+    esp_wifi_connect();
+
+    return ESP_OK;
+}
+
+static void http_start_server() {
+    const httpd_uri_t uri_get_index = {
+        .uri       = "/",
+        .method    = HTTP_GET,
+        .handler   = http_get_index_handler,
+        .user_ctx  = NULL,
+    };
+
+    const httpd_uri_t uri_cfg_wifi = {
+        .uri       = "/cfg_wifi",
+        .method    = HTTP_POST,
+        .handler   = http_cfg_wifi_handler,
+        .user_ctx  = NULL,
+    };
+    httpd_config_t httpd_cfg = HTTPD_DEFAULT_CONFIG();
+
+    if (httpd_start(&hd_httpd, &httpd_cfg) == ESP_OK) {
+        ESP_LOGI(TAG, "start http server ok, port:%d", httpd_cfg.server_port);
+        httpd_register_uri_handler(hd_httpd, &uri_get_index);
+        httpd_register_uri_handler(hd_httpd, &uri_cfg_wifi);
+    } else {
+        ESP_LOGE(TAG, "start http server failed");        
+    }
+}
+
+static void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data) {
+    wifi_event_sta_connected_t *sta_conn_event = NULL;
+    wifi_event_sta_disconnected_t *sta_disconn_event = NULL;
+    wifi_event_ap_staconnected_t *ap_sta_conn_event = NULL;
+    wifi_event_ap_stadisconnected_t *ap_sta_disconn_event = NULL;
+    ip_event_got_ip_t *got_ip_event = NULL;
 
     if (WIFI_EVENT == event_base) {
         switch (event_id) {
         case WIFI_EVENT_STA_START:
-            ESP_LOGI(TAG, "wifi start connect, %s:%s", EXAMPLE_WIFI_SSID, EXAMPLE_WIFI_PWD);
-            esp_wifi_connect(); // non-block
+            ESP_LOGI(TAG, "wifi_sta start connect, %s:%s", sta_ssid, sta_pwd);
+            esp_wifi_connect();
             break;
         case WIFI_EVENT_STA_CONNECTED:
-            conn_event = (wifi_event_sta_connected_t *)event_data;
-            ESP_LOGI(TAG, "wifi connected, channel:%u authmode:%u", conn_event->channel, conn_event->authmode);
+            sta_conn_event = (wifi_event_sta_connected_t *)event_data;
+            ESP_LOGI(TAG, "wifi_sta connected, channel:%u authmode:%u", sta_conn_event->channel, sta_conn_event->authmode);
             break;
         case WIFI_EVENT_STA_DISCONNECTED:
-            dis_event = (wifi_event_sta_disconnected_t *)event_data;
-            ESP_LOGE(TAG, "wifi disconnected, reason:%u", dis_event->reason);
+            sta_disconn_event = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGE(TAG, "wifi_sta disconnected, reason:%u", sta_disconn_event->reason);
+            esp_wifi_connect();
+            break;
+        case WIFI_EVENT_AP_STACONNECTED:
+            ap_sta_conn_event = (wifi_event_ap_staconnected_t*)event_data;
+            ESP_LOGI(TAG, "wifi_ap station join, AID:%u", ap_sta_conn_event->aid);
+            break;
+        case WIFI_EVENT_AP_STADISCONNECTED:
+            ap_sta_disconn_event = (wifi_event_ap_stadisconnected_t*)event_data;
+            ESP_LOGI(TAG, "wifi_ap station leave, AID:%u", ap_sta_disconn_event->aid);
             break;
         default:
             ESP_LOGW(TAG, "unknown WIFI_EVENT:%ld", event_id);
@@ -395,13 +496,13 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     if (IP_EVENT == event_base) {
         switch (event_id) {
         case IP_EVENT_STA_GOT_IP:
-            got_event = (ip_event_got_ip_t *)event_data;
-            ESP_LOGI(TAG, "got ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
-                IP2STR(&got_event->ip_info.ip), IP2STR(&got_event->ip_info.netmask), IP2STR(&got_event->ip_info.gw));
+            got_ip_event = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(TAG, "wifi_sta got ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
+                IP2STR(&got_ip_event->ip_info.ip), IP2STR(&got_ip_event->ip_info.netmask), IP2STR(&got_ip_event->ip_info.gw));
             mqtt_connect_cloud();
             break;
         case IP_EVENT_STA_LOST_IP:
-            ESP_LOGE(TAG, "lost ip");
+            ESP_LOGE(TAG, "wifi_sta lost ip");
             break;
         default:
             ESP_LOGW(TAG, "unknown IP_EVENT:%ld", event_id);
@@ -410,15 +511,15 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
+
 void app_main(void) {
     esp_err_t err = ESP_OK;
-    wifi_init_config_t wifi_init_cfg = WIFI_INIT_CONFIG_DEFAULT();
-    wifi_config_t sta_cfg = {
-        .sta = {
-            .ssid = EXAMPLE_WIFI_SSID,
-            .password = EXAMPLE_WIFI_PWD,
-        },
-    };
+    wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
+    wifi_config_t sta_cfg = {0};
+    wifi_config_t ap_cfg = {0};
+    uint8_t sta_mac[6] = {0};
+    esp_netif_t *ap_netif = NULL;
+    esp_netif_ip_info_t ap_netif_ip = {0};
     uint32_t i = 0;
 
     err = nvs_flash_init();
@@ -427,18 +528,48 @@ void app_main(void) {
         nvs_flash_init();
     }
 
-    ir_rmt_init();
-
     esp_event_loop_create_default();
     esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL);
     esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, NULL);
 
     esp_netif_init();
     esp_netif_create_default_wifi_sta();
-    esp_wifi_init(&wifi_init_cfg);
-    esp_wifi_set_mode(WIFI_MODE_STA);
+    ap_netif = esp_netif_create_default_wifi_ap();
+    esp_wifi_init(&init_cfg);
+
+    read_cfg_from_flash();
+    if (sta_ssid_len) {
+        memcpy(sta_cfg.sta.ssid, sta_ssid, sta_ssid_len);
+    }
+    if (sta_pwd_len) {
+        memcpy(sta_cfg.sta.password, sta_pwd, sta_pwd_len);
+    }
+    ESP_LOGI(TAG, "wifi station, ssid:%s pwd:%s", sta_ssid, sta_pwd);
+
+    esp_wifi_get_mac(ESP_IF_WIFI_STA, sta_mac);
+    sprintf((char *)ap_cfg.ap.ssid, "ESP32_%02X%02X", sta_mac[4], sta_mac[5]);
+    ap_cfg.ap.ssid_len = strlen((char *)ap_cfg.ap.ssid);
+    ap_cfg.ap.channel = EXAMPLE_WIFI_AP_CHANNEL;
+    ap_cfg.ap.max_connection = EXAMPLE_WIFI_AP_MAX_CONN;
+    ap_cfg.ap.authmode = WIFI_AUTH_OPEN;
+    ap_cfg.ap.ssid_hidden = 0;
+    ESP_LOGI(TAG, "wifi ap, ssid:%s", ap_cfg.ap.ssid);
+
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
     esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
+    esp_wifi_set_config(ESP_IF_WIFI_AP, &ap_cfg);
     esp_wifi_start();
+
+    esp_netif_dhcps_stop(ap_netif);
+    ap_netif_ip.ip.addr = esp_ip4addr_aton(EXAMPLE_WIFI_AP_IP);
+    ap_netif_ip.netmask.addr = esp_ip4addr_aton(EXAMPLE_WIFI_AP_NETMASK);
+    ap_netif_ip.gw.addr = esp_ip4addr_aton(EXAMPLE_WIFI_AP_IP);
+    esp_netif_set_ip_info(ap_netif, &ap_netif_ip);
+    esp_netif_dhcps_start(ap_netif);
+
+    http_start_server();
+
+    ir_rmt_init();
 
     while (1) {
         ESP_LOGI(TAG, "%lu", i++);
