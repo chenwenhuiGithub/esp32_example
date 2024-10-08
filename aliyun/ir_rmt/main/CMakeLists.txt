@@ -1,2 +1,2 @@
-idf_component_register(SRCS "main.c" "ir_rmt.c" "ir_nec_encoder.c"
+idf_component_register(SRCS "main.c" "netcfg.c" "cloud.c" "tsl.c" "ir.c"
                     INCLUDE_DIRS "")
