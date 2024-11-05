@@ -16,7 +16,6 @@
 #define CONFIG_TOPIC_OTA_UPGRADE_TASK               "/ota/device/upgrade/"CONFIG_CLOUD_PK"/"CONFIG_CLOUD_DK
 #define CONFIG_TOPIC_OTA_REPORT_PROGRESS            "/ota/device/progress/"CONFIG_CLOUD_PK"/"CONFIG_CLOUD_DK
 #define CONFIG_TOPIC_OTA_REPORT_VERSION             "/ota/device/inform/"CONFIG_CLOUD_PK"/"CONFIG_CLOUD_DK
-#define CONFIG_OTA_PERIOD_REPORT_PROGRESS           3000 // 3s
 
 void cloud_start_connect();
 void cloud_stop_connect();

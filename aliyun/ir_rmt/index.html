@@ -3,124 +3,200 @@
 <head>  
     <meta charset="UTF-8">  
     <meta name="viewport" content="width=device-width, initial-scale=1.0">  
-    <title>ESP32 Wi-Fi NetCfg</title>  
+    <title>ESP32 管理</title>  
     <style>  
         body {  
-            font-family: 'Roboto', sans-serif;  
-            background-color: #f3f4f6;  
+            font-family: Arial, sans-serif;  
+            margin: 20px;  
+            background-color: #f9f9f9;  
             color: #333;  
-            margin: 0;  
-            padding: 0;  
-            display: flex;  
-            justify-content: center;  
-            align-items: center;  
-            height: 100vh;  
-        }  
-        .container {  
-            background: white;  
-            padding: 20px;  
-            border-radius: 8px;  
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);  
-            width: 400px;  
-            text-align: center;  
         }  
         h1 {  
-            margin-bottom: 20px;  
-            font-weight: 500;  
+            text-align: center;  
+            color: #5a5a5a;  
+        }  
+        .tab-container {  
+            display: flex;  
+            justify-content: center;  
+            margin: 20px 0;  
+        }  
+        .tab {  
+            padding: 15px 25px;  
+            cursor: pointer;  
+            background-color: #007bff;  
+            color: white;  
+            border-radius: 5px 5px 0 0;  
+            margin: 0 5px;  
+            transition: background-color 0.3s;  
+        }  
+        .tab:hover {  
+            background-color: #0056b3;  
+        }  
+        .function-page {  
+            display: none;  
+            border: 1px solid #ccc;  
+            border-top: none;  
+            border-radius: 0 0 5px 5px;  
+            background-color: white;  
+            padding: 20px;  
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);  
+        }  
+        .active {  
+            display: block;  
         }  
         label {  
-            margin: 10px 0 5px;  
             display: block;  
-            text-align: left;  
-            font-weight: 500;  
+            margin: 10px 0 5px;  
         }  
         input[type="text"],  
-        input[type="password"] {  
-            width: calc(100% - 20px);  
-            padding: 10px;  
-            margin: 10px 0;  
-            border: 1px solid #ccc;  
-            border-radius: 4px;  
-            font-size: 16px;  
-        }  
-        input[type="submit"] {  
-            background-color: #4CAF50;  
-            color: white;  
-            padding: 10px;  
-            border: none;  
-            border-radius: 4px;  
-            cursor: pointer;  
-            font-size: 16px;  
-            transition: background-color 0.3s;  
+        input[type="password"],  
+        input[type="file"],  
+        button {  
             width: 100%;  
-            margin-top: 10px;  
-        }  
-        input[type="submit"]:hover {  
-            background-color: #45a049;  
-        }  
-        .message {  
-            margin-top: 20px;  
+            padding: 10px;  
+            margin-top: 5px;  
+            border: 1px solid #ccc;  
+            border-radius: 5px;  
+            box-sizing: border-box;  
             font-size: 16px;  
-            color: #333;  
         }  
-        @media (max-width: 480px) {  
-            .container {  
-                width: 90%;  
-            }  
+        button {  
+            background-color: #28a745;  
+            color: white;  
+            border: none;  
+            cursor: pointer;  
+            transition: background-color 0.3s;  
+        }  
+        button:hover {  
+            background-color: #218838;  
+        }  
+        .progress {  
+            width: 100%;  
+            background-color: #f3f3f3;  
+            border-radius: 5px;  
+            overflow: hidden;  
+            margin-top: 10px;  
+            height: 20px;  
+        }  
+        .progress-bar {  
+            height: 100%;  
+            width: 0;  
+            background-color: #4caf50;  
+            transition: width 0.4s;  
+        }  
+        .response-text {  
+            margin-top: 10px;  
+            font-size: 18px;  
+            font-weight: bold;  
+            text-align: center;  
         }  
     </style>  
 </head>  
 <body>  
 
-<div class="container">  
-    <h1>ESP32 Wi-Fi NetCfg</h1>  
-    <form id="wifiForm">  
-        <label for="ssid">SSID:</label>  
-        <input type="text" id="ssid" name="ssid" required placeholder="please input Wi-Fi SSID">  
+<div class="tab-container">  
+    <div class="tab" onclick="togglePage('setupWiFi')">设备配网</div>  
+    <div class="tab" onclick="togglePage('otaUpdate')">OTA 升级</div>  
+</div>  
 
-        <label for="password">PWD:</label>  
-        <input type="password" id="password" name="password" required placeholder="please input Wi-Fi PWD">  
+<div id="setupWiFi" class="function-page active">  
+    <h2>设备配网</h2>  
+    <label for="ssid">SSID:</label>  
+    <input type="text" id="ssid" required placeholder="请输入路由器 SSID">  
+    <label for="pwd">密码:</label>  
+    <input type="password" id="pwd" required placeholder="请输入路由器密码">  
+    <button onclick="sendWiFiConfig()">确认</button>  
+    <p id="wifiResponse" class="response-text"></p>  
+</div>  
 
-        <input type="submit" value="OK">  
-    </form>  
-
-    <div class="message" id="message"></div>  
+<div id="otaUpdate" class="function-page">  
+    <h2>OTA 升级</h2>  
+    <input type="file" id="otaFile" accept=".bin" required>  
+    <button onclick="sendOtaFile()">确认</button>  
+    <p id="otaProgress" class="response-text"></p>  
+    <div class="progress">  
+        <div class="progress-bar" id="progressBar"></div>  
+    </div>  
 </div>  
 
 <script>  
-    document.getElementById('wifiForm').addEventListener('submit', function(event) {  
-        event.preventDefault();
+    function togglePage(pageId) {  
+        const pages = document.querySelectorAll('.function-page');  
+        pages.forEach(page => {  
+            if (page.id === pageId) {  
+                page.classList.add('active');  
+            } else {  
+                page.classList.remove('active');  
+            }  
+        });  
+    }  
 
+    function sendWiFiConfig() {  
         const ssid = document.getElementById('ssid').value;  
-        const pwd = document.getElementById('password').value;  
+        const pwd = document.getElementById('pwd').value;  
+        if ((ssid.length === 0) || (pwd.length === 0)) {  
+            alert("SSID 或密码为空");  
+            return;  
+        }
+        if ((ssid.length > 32) || (pwd.length > 64)) {  
+            alert("SSID 或密码过长");  
+            return;  
+        }
 
-        const payload = {  
-            ssid: ssid,  
-            pwd: pwd
-        };  
-
-        fetch('http://192.168.10.10/cfg_wifi', {  
+        fetch('https://192.168.10.10/cfg_wifi', {  
             method: 'POST',  
             headers: {  
                 'Content-Type': 'application/json'  
             },  
-            body: JSON.stringify(payload)  
+            body: JSON.stringify({ ssid: ssid, pwd: pwd })  
         })  
-        .then(response => {  
-            if (response.ok) {  
-                return response.text();  
-            } else {  
-                throw new Error('network error');  
-            }  
-        })  
-        .then(data => {  
-            document.getElementById('message').innerText = data;  
+        .then(response => response.json())  
+        .then(data => { 
+            if (data.message == 'failed') {
+                document.getElementById('wifiResponse').innerText = '配网失败, SSID 或密码过长'; 
+            } else if (data.message == 'success') {
+                document.getElementById('wifiResponse').innerText = '配网成功';
+            }
         })  
         .catch(error => {  
-            document.getElementById('message').innerText = 'error: ' + error.message;  
+            console.error('Error:', error);  
+            document.getElementById('wifiResponse').innerText = '配网失败, 未知错误';  
         });  
-    });  
+    }  
+
+    function sendOtaFile() {  
+        const fileInput = document.getElementById('otaFile');  
+        if (fileInput.files.length === 0) {  
+            alert("请先选择文件");  
+            return;  
+        }  
+
+        const formData = new FormData();  
+        formData.append('file', fileInput.files[0]);  
+
+        const xhr = new XMLHttpRequest();  
+        xhr.open('POST', 'https://192.168.10.10/ota_update', true);  
+
+        xhr.upload.onprogress = function (event) {  
+            if (event.lengthComputable) {  
+                const percentComplete = (event.loaded / event.total) * 100;  
+                document.getElementById('otaProgress').innerText = '进度: ' + Math.round(percentComplete) + '%';  
+                document.getElementById('progressBar').style.width = percentComplete + '%';  
+            }  
+        };  
+
+        xhr.onload = function () {  
+            if (xhr.status === 200) {  
+                document.getElementById('otaProgress').innerText = '升级完成';  
+            } else {  
+                document.getElementById('otaProgress').innerText = '升级失败';  
+                document.getElementById('progressBar').style.width = '0%'; 
+            }  
+        };  
+
+        xhr.send(formData);  
+    }   
 </script>  
 
 </body>  
-</html>  
+</html>
