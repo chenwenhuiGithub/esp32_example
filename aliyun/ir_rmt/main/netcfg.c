@@ -6,6 +6,7 @@
 #include "driver/gpio.h"
 #include "cJSON.h"
 #include "ota.h"
+#include "log_sample.h"
 #include "netcfg.h"
 
 
@@ -82,12 +83,12 @@ static esp_err_t http_cfg_wifi_handler(httpd_req_t *req) {
     if (strlen(ssid_json->valuestring) > CONFIG_NETCFG_MAX_LEN_SSID || strlen(pwd_json->valuestring) > CONFIG_NETCFG_MAX_LEN_PWD) {
         ESP_LOGE(TAG, "ssid or pwd too long");
         httpd_resp_set_status(req, HTTPD_200);
-        httpd_resp_send(req, "{\"message\":\"failed\"}", strlen("{\"message\":\"failed\"}"));
+        httpd_resp_send(req, "{\"code\":1, \"message\":\"ssid or pwd too long\"}", strlen("{\"code\":1, \"message\":\"ssid or pwd too long\"}"));
         cJSON_Delete(root);
         return ESP_FAIL;
     }
     httpd_resp_set_status(req, HTTPD_200);
-    httpd_resp_send(req, "{\"message\":\"success\"}", strlen("{\"message\":\"success\"}"));
+    httpd_resp_send(req, "{\"code\":0, \"message\":\"success\"}", strlen("\"code\":0, {\"message\":\"success\"}"));
 
     memcpy(sta_cfg.sta.ssid, ssid_json->valuestring, strlen(ssid_json->valuestring));
     memcpy(sta_cfg.sta.password, pwd_json->valuestring, strlen(pwd_json->valuestring));
@@ -125,6 +126,12 @@ void netcfg_init() {
         .handler   = http_ota_update_handler,
         .user_ctx  = NULL,
     };
+    const httpd_uri_t uri_log_sample = {
+        .uri       = "/log_sample",
+        .method    = HTTP_POST,
+        .handler   = http_log_sample_handler,
+        .user_ctx  = NULL,
+    };
 
     httpd_ssl_config_t httpd_cfg = HTTPD_SSL_CONFIG_DEFAULT();
     httpd_cfg.servercert = local_https_server_crt_start;
@@ -140,6 +147,7 @@ void netcfg_init() {
         httpd_register_uri_handler(s_hd_httpd, &uri_get_index);
         httpd_register_uri_handler(s_hd_httpd, &uri_cfg_wifi);
         httpd_register_uri_handler(s_hd_httpd, &uri_ota_update);
+        httpd_register_uri_handler(s_hd_httpd, &uri_log_sample);
 
         led_init();
         xTaskCreate(show_netstat_task, "show_netstat_task", 1024, NULL, 1, NULL);

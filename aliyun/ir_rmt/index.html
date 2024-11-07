@@ -95,28 +95,39 @@
 <body>  
 
 <div class="tab-container">  
-    <div class="tab" onclick="togglePage('setupWiFi')">设备配网</div>  
+    <div class="tab" onclick="togglePage('cfgWiFi')">设备配网</div>  
     <div class="tab" onclick="togglePage('otaUpdate')">OTA 升级</div>  
+    <div class="tab" onclick="togglePage('logSample')">日志采集</div>  
 </div>  
 
-<div id="setupWiFi" class="function-page active">  
+<div id="cfgWiFi" class="function-page active">  
     <h2>设备配网</h2>  
     <label for="ssid">SSID:</label>  
     <input type="text" id="ssid" required placeholder="请输入路由器 SSID">  
     <label for="pwd">密码:</label>  
     <input type="password" id="pwd" required placeholder="请输入路由器密码">  
-    <button onclick="sendWiFiConfig()">确认</button>  
+    <button onclick="sendWiFiConfig()">OK</button>  
     <p id="wifiResponse" class="response-text"></p>  
 </div>  
 
 <div id="otaUpdate" class="function-page">  
     <h2>OTA 升级</h2>  
     <input type="file" id="otaFile" accept=".bin" required>  
-    <button onclick="sendOtaFile()">确认</button>  
+    <button onclick="sendOtaFile()">OK</button>  
     <p id="otaProgress" class="response-text"></p>  
     <div class="progress">  
         <div class="progress-bar" id="progressBar"></div>  
     </div>  
+</div>  
+
+<div id="logSample" class="function-page">  
+    <h2>日志采集</h2>  
+    <label for="ip">IP 地址:</label>  
+    <input type="text" id="ip" required placeholder="请输入服务器 IP 地址">  
+    <label for="port">端口号:</label>  
+    <input type="text" id="port" required placeholder="请输入服务器端口号">  
+    <button id="logBtn" onclick="sendLogSample()">开始</button>  
+    <p id="logResponse" class="response-text"></p>  
 </div>  
 
 <script>  
@@ -134,12 +145,8 @@
     function sendWiFiConfig() {  
         const ssid = document.getElementById('ssid').value;  
         const pwd = document.getElementById('pwd').value;  
-        if ((ssid.length === 0) || (pwd.length === 0)) {  
-            alert("SSID 或密码为空");  
-            return;  
-        }
-        if ((ssid.length > 32) || (pwd.length > 64)) {  
-            alert("SSID 或密码过长");  
+        if (!((0 < ssid.length) && (ssid.length < 32) && (0 < pwd.length) && (pwd.length < 64))) {  
+            alert("路由器 SSID 或密码长度不合法");  
             return;  
         }
 
@@ -148,19 +155,19 @@
             headers: {  
                 'Content-Type': 'application/json'  
             },  
-            body: JSON.stringify({ ssid: ssid, pwd: pwd })  
+            body: JSON.stringify({ 'ssid': ssid, 'pwd': pwd })  
         })  
         .then(response => response.json())  
         .then(data => { 
-            if (data.message == 'failed') {
-                document.getElementById('wifiResponse').innerText = '配网失败, SSID 或密码过长'; 
-            } else if (data.message == 'success') {
-                document.getElementById('wifiResponse').innerText = '配网成功';
+            if (data.code) {
+                document.getElementById('wifiResponse').innerText = '失败: ' + data.message; 
+            } else {
+                document.getElementById('wifiResponse').innerText = '成功';
             }
         })  
         .catch(error => {  
             console.error('Error:', error);  
-            document.getElementById('wifiResponse').innerText = '配网失败, 未知错误';  
+            document.getElementById('wifiResponse').innerText = '失败: ' + error.message;  
         });  
     }  
 
@@ -187,15 +194,67 @@
 
         xhr.onload = function () {  
             if (xhr.status === 200) {  
-                document.getElementById('otaProgress').innerText = '升级完成';  
+                document.getElementById('otaProgress').innerText = '成功';  
             } else {  
-                document.getElementById('otaProgress').innerText = '升级失败';  
+                document.getElementById('otaProgress').innerText = '失败';  
                 document.getElementById('progressBar').style.width = '0%'; 
             }  
         };  
 
         xhr.send(formData);  
     }   
+
+    function sendLogSample() {  
+        function isValidIP(ip) {  
+            const ipPattern = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){2}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;  
+            return ipPattern.test(ip);  
+        }  
+
+        function isValidPort(port) {  
+            const portNum = parseInt(port, 10);  
+            return !isNaN(portNum) && portNum >= 0 && portNum <= 65535;  
+        }  
+
+        const btn = document.getElementById('logBtn');
+        const ip = document.getElementById('ip').value;  
+        const port = document.getElementById('port').value;  
+
+        if (!(isValidIP(ip) && isValidPort(port))) {  
+            alert("服务器 IP 地址或端口号不合法");  
+            return;  
+        }   
+ 
+        const portInt = parseInt(port, 10);  
+        sample = 0; 
+        if (btn.innerText === '开始') {
+            sample = 1;
+        }
+
+        fetch('https://192.168.10.10/log_sample', {  
+            method: 'POST',  
+            headers: {  
+                'Content-Type': 'application/json'  
+            },  
+            body: JSON.stringify({ 'ip': ip, 'port': portInt, 'sample': sample })  
+        })  
+        .then(response => response.json())  
+        .then(data => {   
+            if (data.code) {  
+                document.getElementById('logResponse').innerText = '失败: ' + data.message;
+            } else {  
+                document.getElementById('logResponse').innerText = '成功';  
+                if (btn.innerText === '开始') {
+                    btn.innerText = '停止';
+                } else {
+                    btn.innerText = '开始';
+                }
+            }  
+        })  
+        .catch(error => {  
+            console.error('Error:', error);  
+            document.getElementById('logResponse').innerText = '失败: ' + error.message;  
+        });  
+    } 
 </script>  
 
 </body>  

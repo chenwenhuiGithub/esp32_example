@@ -321,7 +321,7 @@ esp_err_t http_ota_update_handler(httpd_req_t *req) {
     ESP_LOGI(TAG, "esp_ota_set_boot_partition ok");
 
     httpd_resp_set_status(req, HTTPD_200);
-    httpd_resp_send(req, "{\"message\":\"success\"}", strlen("{\"message\":\"success\"}"));
+    httpd_resp_send(req, "{\"code\":0, \"message\":\"success\"}", strlen("{\"code\":0, \"message\":\"success\"}"));
 
     ESP_LOGI(TAG, "restart after 3s");
     vTaskDelay(3000 / portTICK_PERIOD_MS);
@@ -330,7 +330,7 @@ esp_err_t http_ota_update_handler(httpd_req_t *req) {
 exit:
     esp_ota_abort(s_hd_ota);
     httpd_resp_set_status(req, HTTPD_500);
-    httpd_resp_send(req, "{\"message\":\"failed\"}", strlen("{\"message\":\"failed\"}"));
+    httpd_resp_send(req, "{\"code\":1, \"message\":\"failed\"}", strlen("{\"code\":1, \"message\":\"failed\"}"));
 
     return ESP_FAIL;
 }
