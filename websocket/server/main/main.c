@@ -11,7 +11,7 @@
 
 #define EXAMPLE_WIFI_SSID                           "TP-LINK_wenhui"
 #define EXAMPLE_WIFI_PWD                            "12345678"
-#define EXAMPLE_USE_WSS                             1
+#define EXAMPLE_USE_WSS                             0
 
 #if EXAMPLE_USE_WSS == 1
 extern const uint8_t server_crt_start[]             asm("_binary_server_crt_start");
@@ -25,11 +25,11 @@ static esp_err_t echo_get_handler(httpd_req_t *req);
 static const char *TAG = "websocket_server";
 
 static const httpd_uri_t uri_ws = {
-    .uri       = "/ws",
+    .uri       = "/echo",
     .method    = HTTP_GET,
     .handler   = echo_get_handler,
     .user_ctx  = NULL,
-    .is_websocket = ture,
+    .is_websocket = true,
     .handle_ws_control_frames = true
 };
 
@@ -59,9 +59,10 @@ static esp_err_t echo_get_handler(httpd_req_t *req)
         return ret;
     }
 
-    ESP_LOGI(TAG, "recv ws frame, final:%d fragmented:%d type:%d(0-subpkg,1-text,2-hex,8-disconn,9-ping,10-pong) len:%d data:",
-        ws_pkt.final, ws_pkt.fragmented, ws_pkt.type, ws_pkt.len);
+    ESP_LOGI(TAG, "recv ws frame, final:%d type(0-subpkg,1-text,2-hex,8-disconn,9-ping,10-pong):%d len:%d data:",
+        ws_pkt.final, ws_pkt.type, ws_pkt.len);
     if (HTTPD_WS_TYPE_TEXT == ws_pkt.type) {
+        ws_pkt.payload[ws_pkt.len] = 0;
         ESP_LOGI(TAG, "%s", ws_pkt.payload);
     } else if (HTTPD_WS_TYPE_BINARY == ws_pkt.type) {
         ESP_LOG_BUFFER_HEX(TAG, ws_pkt.payload, ws_pkt.len);
@@ -76,7 +77,7 @@ static esp_err_t echo_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static void start_websocket_server_task()
+static void start_websocket_server()
 {
     httpd_handle_t hd_server = NULL;
 
@@ -131,7 +132,7 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
             got_event = (ip_event_got_ip_t *)event_data;
             ESP_LOGI(TAG, "got ip, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
                 IP2STR(&got_event->ip_info.ip), IP2STR(&got_event->ip_info.netmask), IP2STR(&got_event->ip_info.gw));
-            start_websocket_server_task();
+            start_websocket_server();
             break;
         case IP_EVENT_STA_LOST_IP:
             ESP_LOGE(TAG, "lost ip");

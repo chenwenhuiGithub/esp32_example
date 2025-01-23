@@ -7,20 +7,71 @@
 #include "freertos/task.h"
 #include "esp_http_server.h"
 #include "esp_https_server.h"
+#include "esp_websocket_client.h"
 
 
 #define EXAMPLE_WIFI_SSID                           "TP-LINK_wenhui"
 #define EXAMPLE_WIFI_PWD                            "12345678"
+#define EXAMPLE_USE_WSS                             0
 
+#if EXAMPLE_USE_WSS == 1
+extern const char server_ca_crt_start[]          asm("_binary_server_ca_crt_start");
+extern const char server_ca_crt_end[]            asm("_binary_server_ca_crt_end");
+extern const char client_crt_start[]             asm("_binary_client_crt_start");
+extern const char client_crt_end[]               asm("_binary_client_crt_end");
+extern const char client_key_start[]             asm("_binary_client_key_start");
+extern const char client_key_end[]               asm("_binary_client_key_end");
+#endif
 
 static const char *TAG = "websocket_client";
+static esp_websocket_client_handle_t hd_ws_client = NULL;
 
 static void websocket_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     esp_websocket_event_data_t *ws_data = (esp_websocket_event_data_t *)event_data;
+    char send_data[16] = {0};
+    char recv_data[128] = {0};
+    
     switch (event_id) {
+    case WEBSOCKET_EVENT_BEGIN:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_BEGIN");
+        break;
+    case WEBSOCKET_EVENT_BEFORE_CONNECT:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_BEFORE_CONNECT");
+        break;
     case WEBSOCKET_EVENT_CONNECTED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_CONNECTED");
+        memset(send_data, 'a', sizeof(send_data) - 1);
+        esp_websocket_client_send_text(hd_ws_client, send_data, strlen(send_data), 100);
+        memset(send_data, 0x05, sizeof(send_data));
+        esp_websocket_client_send_bin(hd_ws_client, send_data, sizeof(send_data), 100);
+        memset(send_data, 0x11, sizeof(send_data));
+        esp_websocket_client_send_bin_partial(hd_ws_client, send_data, sizeof(send_data), 100);
+        memset(send_data, 0x22, sizeof(send_data));
+        esp_websocket_client_send_cont_msg(hd_ws_client, send_data, sizeof(send_data), 100);
+        memset(send_data, 0x33, sizeof(send_data));
+        esp_websocket_client_send_cont_msg(hd_ws_client, send_data, sizeof(send_data), 100);
+        esp_websocket_client_send_fin(hd_ws_client, 100);
+        break;
+    case WEBSOCKET_EVENT_DATA:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
+        ESP_LOGI(TAG, "recv ws frame, opcode(0-subpkg,1-text,2-hex,8-dis,9-ping,10-pong):%u data_len:%d payload_len:%d payload_offset:%d",
+            ws_data->op_code, ws_data->data_len, ws_data->payload_len, ws_data->payload_offset);
+        if (HTTPD_WS_TYPE_TEXT == ws_data->op_code) {
+            memcpy(recv_data, ws_data->data_ptr, ws_data->data_len);
+            recv_data[ws_data->data_len] = 0;
+            ESP_LOGI(TAG, "%s", recv_data);
+        } else if (HTTPD_WS_TYPE_BINARY == ws_data->op_code) {
+            ESP_LOG_BUFFER_HEX(TAG, ws_data->data_ptr, ws_data->data_len);
+        } else if (HTTPD_WS_TYPE_CLOSE == ws_data->op_code) {
+            ESP_LOGI(TAG, "disconnect reason:%d", (ws_data->data_ptr[0] << 8) + ws_data->data_ptr[1]);
+        } else if (HTTPD_WS_TYPE_PING == ws_data->op_code) {
+            ESP_LOGI(TAG, "ping");
+        } else if (HTTPD_WS_TYPE_PONG == ws_data->op_code) {
+            ESP_LOGI(TAG, "pong");
+        } else {
+            ESP_LOGW(TAG, "unknown op_code:%u", ws_data->op_code);
+        }
         break;
     case WEBSOCKET_EVENT_DISCONNECTED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_DISCONNECTED");
@@ -28,33 +79,38 @@ static void websocket_event_handler(void *handler_args, esp_event_base_t base, i
     case WEBSOCKET_EVENT_CLOSED:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_CLOSED");
         break;
-    case WEBSOCKET_EVENT_DATA:
-        ESP_LOGI(TAG, "WEBSOCKET_EVENT_DATA");
-        ESP_LOGI(TAG, "recv ws frame, opcode:%d(0-subpkg,1-text,2-hex,8-disconn,9-ping,10-pong) data_len:%d payload_len:%d payload_offset:%d",
-            ws_data->op_code, ws_data->data_len, ws_data->payload_len, ws_data->payload_offset);
-        if (HTTPD_WS_TYPE_TEXT == ws_data->op_code) {
-            ESP_LOGI(TAG, "%s", ws_data->data_ptr);
-        } else if (HTTPD_WS_TYPE_BINARY == ws_data->op_code) {
-            ESP_LOG_BUFFER_HEX(TAG, ws_data->data_ptr, ws_data->data_len);
-        } else if (HTTPD_WS_TYPE_CLOSE == ws_data->op_code) {
-            ESP_LOGI(TAG, "disconnect reason:%d", (ws_data->data_ptr[0] << 8) + ws_data->data_ptr[1]);
-        }
+    case WEBSOCKET_EVENT_FINISH:
+        ESP_LOGI(TAG, "WEBSOCKET_EVENT_FINISH");
         break;
     case WEBSOCKET_EVENT_ERROR:
         ESP_LOGI(TAG, "WEBSOCKET_EVENT_ERROR");
         break;
+    default:
+        ESP_LOGW(TAG, "unknown event_id:%ld", event_id);
+        break;
     }
 }
 
-static esp_err_t start_websocket_client()
+static void start_websocket_client()
 {
     esp_websocket_client_config_t config = {0};
+#if EXAMPLE_USE_WSS == 1
     config.uri = "wss://echo.websocket.events";
     config.transport = WEBSOCKET_TRANSPORT_OVER_SSL;
+    config.skip_cert_common_name_check = true;
+    config.cert_pem = server_ca_crt_start;
+    config.client_cert = client_crt_start;
+    config.client_cert_len = client_crt_end - client_crt_start;
+    config.client_key = client_key_start;
+    config.client_key_len = client_key_end - client_key_start;
+#else
+    config.uri = "ws://echo.websocket.events";
+    config.transport = WEBSOCKET_TRANSPORT_OVER_TCP;
+#endif
 
-    esp_websocket_client_handle_t client = esp_websocket_client_init(&config);
-    esp_websocket_register_events(client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
-    esp_websocket_client_start(client);
+    hd_ws_client = esp_websocket_client_init(&config);
+    esp_websocket_register_events(hd_ws_client, WEBSOCKET_EVENT_ANY, websocket_event_handler, NULL);
+    esp_websocket_client_start(hd_ws_client);
 }
 
 static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data)
