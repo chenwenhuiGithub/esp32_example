@@ -9,10 +9,11 @@
 #include "esp_modbus_master.h"
 
 
-#define CONFIG_WIFI_SSID                            "SolaxGuest"
-#define CONFIG_WIFI_PWD                             "solaxpower"
+#define CONFIG_WIFI_SSID                            "wenhui"
+#define CONFIG_WIFI_PWD                             "12345678"
 #define CONFIG_MODBUS_TCP_PORT                      502
 #define CONFIG_MODBUS_SLAVE_UID                     1
+#define CONFIG_MODBUS_SLAVE_IP                      "192.168.14.28"
 
 #define CMD_READ_COIL                               0x01
 #define CMD_READ_DISCRETE_INPUT                     0x02
@@ -25,7 +26,7 @@
 
 static const char *TAG = "tcp_master";
 static char* slave_ips[] = {
-    "192.168.108.102",
+    CONFIG_MODBUS_SLAVE_IP,
     NULL
 };
 static esp_netif_t *sta_netif = NULL;
@@ -164,7 +165,7 @@ static void write_holding_reg() {
     ESP_LOGI(TAG, "[4]:0x%04x [3]:0x%04x [2]:0x%04x", mult_data[2], mult_data[1], mult_data[0]);
 }
 
-static void tcp_master() {
+static void tcp_master_cb(void *pvParameters) {
     esp_err_t err = ESP_OK;
     mb_communication_info_t comm_info = {0};
 
@@ -206,6 +207,10 @@ static void tcp_master() {
     vTaskDelay(pdMS_TO_TICKS(500));
     read_holding_reg();
     vTaskDelay(pdMS_TO_TICKS(500));
+
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
 }
 
 static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
@@ -240,7 +245,7 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
             evt_got_ip = (ip_event_got_ip_t *)event_data;
             ESP_LOGI(TAG, "IP_EVENT_STA_GOT_IP, ip:" IPSTR " netmask:" IPSTR " gw:" IPSTR,
                 IP2STR(&evt_got_ip->ip_info.ip), IP2STR(&evt_got_ip->ip_info.netmask), IP2STR(&evt_got_ip->ip_info.gw));
-            tcp_master();
+            xTaskCreate(tcp_master_cb, "tcp_master", 4096, NULL, 5, NULL);
             break;
         case IP_EVENT_STA_LOST_IP:
             ESP_LOGE(TAG, "IP_EVENT_STA_LOST_IP");
