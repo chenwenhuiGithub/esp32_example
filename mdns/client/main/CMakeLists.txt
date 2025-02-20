@@ -1,3 +1,3 @@
-idf_component_register(SRCS "main.c"
+idf_component_register(SRCS "main.c" "mdns.c"
                     INCLUDE_DIRS ""
-                    REQUIRES mdns nvs_flash esp_wifi)
+                    REQUIRES nvs_flash esp_wifi)

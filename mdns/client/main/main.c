@@ -12,212 +12,53 @@
 #include "mdns.h"
 
 
-#define CONFIG_WIFI_SSID                    "SolaxGuest"
-#define CONFIG_WIFI_PWD                     "solaxpower"
-#define CONFIG_MDNS_SRVTYPE_1               "_echo_srv"
-#define CONFIG_MDNS_TRANSPORT_1             "_udp"
-#define CONFIG_MDNS_SRVTYPE_2               "_echo_srv"
-#define CONFIG_MDNS_TRANSPORT_2             "_tcp"
+#define CONFIG_WIFI_SSID                    "wenhui"
+#define CONFIG_WIFI_PWD                     "12345678"
+#define CONFIG_MDNS_SRVTYPE                 "_echosrv"
+#define CONFIG_MDNS_TRANSPORT               "_udp"
 
 
-static const char *TAG = "mdns_server";
-
-static void udp_echo_test() {
-    esp_err_t err = ESP_OK;
-    mdns_result_t *ptr_results = NULL;
-    mdns_result_t *srv_results = NULL;
-    mdns_result_t *txt_results = NULL;
-    mdns_result_t *result = NULL;
-    char insname[64] = {0};
-    char hostname[64] = {0};
-    uint16_t port = 0;
-    struct esp_ip4_addr ip_addr = {0};
-    uint32_t i = 0;
-    int sock = 0;
-    uint8_t rx_buf[128] = {0};
-    struct sockaddr_in server_addr = {0};
-    socklen_t server_addr_len = sizeof(server_addr);
-
-    ESP_LOGI(TAG, "query PTR: %s.%s.local", CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1);
-    err = mdns_query_ptr(CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1, 3000, 3,  &ptr_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!ptr_results) {
-        ESP_LOGW(TAG, "not found");
-    } else {
-        result = ptr_results;
-        while (result) {
-            ESP_LOGI(TAG, "%s.%s.%s.local", result->instance_name, result->service_type, result->proto);
-            result = result->next;
-        }
-
-        result = ptr_results; // save first SRV instance_name
-        memcpy(insname, result->instance_name, strlen(result->instance_name));
-    }
-
-    ESP_LOGI(TAG, "query SRV: %s.%s.%s.local", insname, CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1);
-    err = mdns_query_srv(insname, CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1, 3000, &srv_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!srv_results) {
-        ESP_LOGW(TAG, "no found");
-    } else {
-        result = srv_results;
-        ESP_LOGI(TAG, "port:%u hostname:%s", result->port, result->hostname);
-
-        memcpy(hostname, result->hostname, strlen(result->hostname));
-        port = result->port;
-    }
-
-    ESP_LOGI(TAG, "query TXT: %s.%s.%s.local", insname, CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1);
-    err = mdns_query_txt(insname, CONFIG_MDNS_SRVTYPE_1, CONFIG_MDNS_TRANSPORT_1, 3000, &txt_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!txt_results) {
-        ESP_LOGW(TAG, "no found");
-    } else {
-        result = txt_results;
-        for (i = 0; i < result->txt_count; i++) {
-            ESP_LOGI(TAG, "%s:%s", result->txt[i].key, result->txt[i].value);
-        }
-    } 
-
-    ESP_LOGI(TAG, "query A: %s", hostname);
-    err = mdns_query_a(hostname, 3000, &ip_addr);
-    if (ESP_OK != err) {
-        if (ESP_ERR_NOT_FOUND == err) {
-            ESP_LOGW(TAG, "no found");
-        } else {
-            ESP_LOGE(TAG, "query failed:%d", err);
-        }
-    } else {
-        ESP_LOGI(TAG, IPSTR, IP2STR(&ip_addr));
-    }
-
-    ESP_LOGI(TAG, "start udp socket test, "IPSTR":%u", IP2STR(&ip_addr), port);
-
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "udp socket create failed:%d", errno);
-        return;
-    }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = ip_addr.addr;
-    server_addr.sin_port = htons(port);
-
-    sendto(sock, "hello world", strlen("hello world"), 0, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    ESP_LOGI(TAG, "UDP %s:%d << %s", inet_ntoa(server_addr.sin_addr), server_addr.sin_port, "hello world");
-    recvfrom(sock, rx_buf, sizeof(rx_buf), 0, (struct sockaddr *)&server_addr, &server_addr_len);
-    ESP_LOGI(TAG, "UDP %s:%d >> %s", inet_ntoa(server_addr.sin_addr), server_addr.sin_port, rx_buf);
-
-    mdns_query_results_free(ptr_results);
-    mdns_query_results_free(srv_results);
-    mdns_query_results_free(txt_results);
-}
-
-static void tcp_echo_test() {
-    esp_err_t err = ESP_OK;
-    mdns_result_t *ptr_results = NULL;
-    mdns_result_t *srv_results = NULL;
-    mdns_result_t *txt_results = NULL;
-    mdns_result_t *result = NULL;
-    char insname[64] = {0};
-    char hostname[64] = {0};
-    uint16_t port = 0;
-    struct esp_ip4_addr ip_addr = {0};
-    uint32_t i = 0;
-    int sock = 0;
-    uint8_t rx_buf[128] = {0};
-    struct sockaddr_in server_addr = {0};
-
-    ESP_LOGI(TAG, "query PTR: %s.%s.local", CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2);
-    err = mdns_query_ptr(CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2, 3000, 3,  &ptr_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!ptr_results) {
-        ESP_LOGW(TAG, "not found");
-    } else {
-        result = ptr_results;
-        while (result) {
-            ESP_LOGI(TAG, "%s.%s.%s.local", result->instance_name, result->service_type, result->proto);
-            result = result->next;
-        }
-
-        result = ptr_results; // save first SRV instance_name
-        memcpy(insname, result->instance_name, strlen(result->instance_name));
-    }
-
-    ESP_LOGI(TAG, "query SRV: %s.%s.%s.local", insname, CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2);
-    err = mdns_query_srv(insname, CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2, 3000, &srv_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!srv_results) {
-        ESP_LOGW(TAG, "no found");
-    } else {
-        result = srv_results;
-        ESP_LOGI(TAG, "port:%u hostname:%s", result->port, result->hostname);
-
-        memcpy(hostname, result->hostname, strlen(result->hostname));
-        port = result->port;
-    }
-
-    ESP_LOGI(TAG, "query TXT: %s.%s.%s.local", insname, CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2);
-    err = mdns_query_txt(insname, CONFIG_MDNS_SRVTYPE_2, CONFIG_MDNS_TRANSPORT_2, 3000, &txt_results);
-    if (ESP_OK != err) {
-        ESP_LOGE(TAG, "query failed:%d", err);
-    } else if (!txt_results) {
-        ESP_LOGW(TAG, "no found");
-    } else {
-        result = txt_results;
-        for (i = 0; i < result->txt_count; i++) {
-            ESP_LOGI(TAG, "%s:%s", result->txt[i].key, result->txt[i].value);
-        }
-    } 
-
-    ESP_LOGI(TAG, "query A: %s", hostname);
-    err = mdns_query_a(hostname, 3000, &ip_addr);
-    if (ESP_OK != err) {
-        if (ESP_ERR_NOT_FOUND == err) {
-            ESP_LOGW(TAG, "no found");
-        } else {
-            ESP_LOGE(TAG, "query failed:%d", err);
-        }
-    } else {
-        ESP_LOGI(TAG, IPSTR, IP2STR(&ip_addr));
-    }
-
-    ESP_LOGI(TAG, "start tcp socket test, "IPSTR":%u", IP2STR(&ip_addr), port);
-
-    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (sock < 0) {
-        ESP_LOGE(TAG, "tcp socket create failed:%d", errno);
-        return;
-    }
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = ip_addr.addr;
-    server_addr.sin_port = htons(port);
-    err = connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
-    if (err != 0) {
-        ESP_LOGE(TAG, "tcp socket connect failed:%d", errno);
-        return;
-    }
-    ESP_LOGI(TAG, "tcp socket connect success");
-
-    send(sock, "hello world", strlen("hello world"), 0);
-    ESP_LOGI(TAG, "TCP %s:%d << %s", inet_ntoa(server_addr.sin_addr), server_addr.sin_port, "hello world");
-    recv(sock, rx_buf, sizeof(rx_buf), 0);
-    ESP_LOGI(TAG, "TCP %s:%d >> %s", inet_ntoa(server_addr.sin_addr), server_addr.sin_port, rx_buf);
-
-    mdns_query_results_free(ptr_results);
-    mdns_query_results_free(srv_results);
-    mdns_query_results_free(txt_results);
-}
+static const char *TAG = "mdns_client";
 
 static void mdns_query_cb(void *pvParameters) {
-    udp_echo_test();
-    tcp_echo_test();
+    esp_err_t err = ESP_OK;
+    mdns_result_ptr_t ret_ptr = {0};
+    mdns_result_srv_t ret_srv = {0};
+    mdns_result_txt_t ret_txt[5] = {0};
+    uint32_t txt_cnt = 0;
+
+    mdns_init();
+
+    ESP_LOGI(TAG, "send query PTR, %s.%s.local", CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT);
+    err = mdns_query_ptr(CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT, &ret_ptr);
+    if (ESP_OK == err) {
+        ESP_LOGI(TAG, "recv resp ok, instance:%s", ret_ptr.instance);
+    } else {
+        ESP_LOGE(TAG, "recv resp err:%d", err);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ESP_LOGI(TAG, "send query SRV, %s.%s.%s.local", ret_ptr.instance, CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT);
+    err = mdns_query_srv(ret_ptr.instance, CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT, &ret_srv);
+    if (ESP_OK == err) {
+        ESP_LOGI(TAG, "recv resp ok, priority:%u, weight:%u, port:%u, target:%s",
+            ret_srv.priority, ret_srv.weight, ret_srv.port, ret_srv.target);
+    } else {
+        ESP_LOGE(TAG, "recv resp err:%d", err);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
+
+    ESP_LOGI(TAG, "send query TXT, %s.%s.%s.local", ret_ptr.instance, CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT);
+    err = mdns_query_txt(ret_ptr.instance, CONFIG_MDNS_SRVTYPE, CONFIG_MDNS_TRANSPORT, ret_txt, &txt_cnt);
+    if (ESP_OK == err) {
+        ESP_LOGI(TAG, "recv resp ok, txt_cnt:%lu", txt_cnt);
+        for (uint32_t i = 0; i < txt_cnt; i++) {
+            ESP_LOGI(TAG, "%s:%s", ret_txt[i].key, ret_txt[i].value);
+        }
+    } else {
+        ESP_LOGE(TAG, "recv resp err:%d", err);
+    }
+    vTaskDelay(pdMS_TO_TICKS(1000));
 
     vTaskDelete(NULL);
 }
@@ -297,8 +138,6 @@ void app_main(void) {
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &sta_cfg);
     esp_wifi_start();
-
-    mdns_init();
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
